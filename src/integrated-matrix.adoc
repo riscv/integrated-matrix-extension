@@ -163,6 +163,8 @@ For integer multiply-accumulate instructions, `altfmt_A` and `altfmt_B` select w
 | 1 | Unsigned
 |===
 
+=== Storage formats
+
 [#zvvmm,reftext=Matrix-multiplication instructions (integer)]
 === Zvvmm: Extension for matrix-multiplication on vector-registers interpreted as 2D integer matrix-tiles
 
