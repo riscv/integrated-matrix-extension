@@ -125,7 +125,7 @@ The Integrated Matrix floating-point extensions use the _altfmt_ field (as defin
 | X | 1 | X | X | _reserved_
 |===
 
-==== Alternate floating-point formats for inputs (`altfmt_A`, `altfmt_B`)
+==== Alternate formats for inputs (`altfmt_A`, `altfmt_B`)
 
 The `altfmt_A` and `altfmt_B` fields are 1-bit read/write fields added to the `vtype` CSR by the Integrated Matrix extensions to select the interpretation of elements in input matrices A and B, respectively.
 Their meaning depends on whether the instruction is a floating-point or integer multiply-accumulate.
