@@ -1492,11 +1492,11 @@ The type-suffix on `vd` determines the accumulator (C) SEW and MUL_C:
 
 [source,c]
 --
-/* SEW=16 accum / SEW=8 inputs,  VLEN=256, λ=2: MUL_C=4.  LMUL=1 (default): */
+/* SEW=16 accum / EEW=8 inputs,  VLEN=256, λ=2: MUL_C=4.  LMUL=1 (default): */
 vint16m4_t __riscv_vwmmacc_vv_i16m4   (vint16m4_t vd, vint8m1_t  vs1, vint8m1_t  vs2, size_t vl);
-/* SEW=32 accum / SEW=16 inputs, VLEN=256, λ=2: MUL_C=2.  LMUL=1 (default): */
+/* SEW=32 accum / EEW=16 inputs, VLEN=256, λ=2: MUL_C=2.  LMUL=1 (default): */
 vint32m2_t __riscv_vwmmacc_vv_i32m2   (vint32m2_t vd, vint16m1_t vs1, vint16m1_t vs2, size_t vl);
-/* SEW=64 accum / SEW=32 inputs, VLEN=256, λ=2: MUL_C=1.  LMUL=1 (default): */
+/* SEW=64 accum / EEW=32 inputs, VLEN=256, λ=2: MUL_C=1.  LMUL=1 (default): */
 vint64m1_t __riscv_vwmmacc_vv_i64m1   (vint64m1_t vd, vint32m1_t vs1, vint32m1_t vs2, size_t vl);
 --
 
@@ -1504,9 +1504,9 @@ For `vqwmmacc.vv` (W=4), A and B use SEW/4 elements:
 
 [source,c]
 --
-/* SEW=32 accum / SEW=8 inputs,  VLEN=256, λ=2: MUL_C=2.  LMUL=1 (default): */
+/* SEW=32 accum / EEW=8 inputs,  VLEN=256, λ=2: MUL_C=2.  LMUL=1 (default): */
 vint32m2_t __riscv_vqwmmacc_vv_i32m2  (vint32m2_t vd, vint8m1_t  vs1, vint8m1_t  vs2, size_t vl);
-/* SEW=64 accum / SEW=16 inputs, VLEN=256, λ=2: MUL_C=1.  LMUL=1 (default): */
+/* SEW=64 accum / EEW=16 inputs, VLEN=256, λ=2: MUL_C=1.  LMUL=1 (default): */
 vint64m1_t __riscv_vqwmmacc_vv_i64m1  (vint64m1_t vd, vint16m1_t vs1, vint16m1_t vs2, size_t vl);
 --
 
