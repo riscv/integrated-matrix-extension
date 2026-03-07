@@ -8,7 +8,7 @@ Dedicated matrix-multiply accelerators often require new register state—separa
 
 The Zvvm family of Integrated Matrix extensions (Zvvmm, Zvvfmm, Zvvmtls) takes a different approach: it accelerates matrix multiplication using _only_ the 32 × VLEN architected vector registers already defined by the RISC-V "V" vector extension.
 By interpreting groups of existing vector registers as two-dimensional matrix tiles, the Zvvm family of Integrated Matrix extensions delivers high arithmetic density without introducing any new architected state.
-We focus, in particular, on the computation of C ← A × B^T^ + C, where A (μ × λ) and B (ν × λ) are row-major matrix panels and C (μ × ν) is column-major.
+We focus, in particular, on the computation of C ← A × B^T^ + C, where A (μ × λ) and B (ν × λ) are row-major matrix panels and C (μ × ν) is row-major.
 
 The extensions are designed to support implementations spanning a wide range of microarchitectures and performance points: from small, embedded in-order cores targeting low-power and area-constrained applications, to large, high-performance out-of-order implementations targeting HPC and AI workloads.
 A key design goal is that the same binary executes correctly—and achieves near-peak arithmetic throughput—across this entire range without recompilation.
@@ -30,6 +30,8 @@ The three matrices in the multiply-accumulate operation C ← A × B^T^ + C are 
   Its register group multiplier MUL_C is determined by the tile geometry:
   MUL_C = (VLEN / SEW) / λ², where λ is the K dimension given by the `lambda[2:0]` field in `vtype`.
   The C register group may start at any vector register index that is MUL_C-aligned.
+  MUL_C ∈ {1, 2, 4, 8, 16}.
+  If MUL_C = 16, the only allowed vector register indices are 0 and 16.
 
 * The _input matrices_ A and B are stored in vector register groups with element width determined by the instruction:
   equal to SEW for non-packing variants, SEW/2 for double-packing, and SEW/4 for quad-packing variants.
