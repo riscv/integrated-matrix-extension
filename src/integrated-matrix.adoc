@@ -349,7 +349,7 @@ The `altfmt_A` and `altfmt_B` bits are currently assigned to `vtype[9]`
 and `vtype[10]`, which fall within the immediate operand of `vsetvli`.
 These bits are expected to move outside the `vsetvli` immediate field in a
 future revision.  The likely final location is just below the `lambda[2:0]`
-bits (i.e., at `vtype[XLEN-5]` and `vtype[XLEN-6]`).
+bits (i.e., at `vtype[XLEN-5]` and `vtype[XLEN-6]`, respectively).
 ====
 
 ===== Floating-point instructions
@@ -401,6 +401,16 @@ the block size used for microscaling operations (`vm=0`).  When `vm=1`, the
 | 0 | 32 elements
 | 1 | 16 elements
 |===
+
+[NOTE]
+.Editorial Note
+====
+The `bs` bit is currently assigned to `vtype[11]`,
+which falls within the immediate operand of `vsetvli`.
+This bit is expected to move outside the `vsetvli` immediate field in a
+future revision.  The likely final location is just below the `altfmt_A` and `altfmt_B`
+bits (i.e., at `vtype[XLEN-7]`).
+====
 
 === Storage formats
 
