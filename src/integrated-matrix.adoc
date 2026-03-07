@@ -1089,11 +1089,11 @@ If (rs2) = 0, then the leading dimension LD is set to the _natural dimension_ of
 That is, the memory layout, with elements contiguous to each other, matches the layout of the register group being loaded/stored.
 
 [NOTE]
-===
+====
 It is expected that implementations will optimize the case of `rs2 = x0` to load/store a vector register group with contiguous VL elements in memory.
 
 Efficient implementation of tile loads with `rs2 = x0` are essential to high-performance linear algebra kernels.
-===
+====
 
 ==== Instructions
 
