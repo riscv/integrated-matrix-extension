@@ -493,9 +493,6 @@ An implementation partitions the λ sub-dot-products for each output element int
 where the roundings are performed with the rounding mode from `frm`.
 The rounding of partial sum S _before_ it is accumulated to the running value of C[m,n] is optional.
 
-* After each group, the accumulated partial sum is rounded to C's precision (SEW) using an _implementation-defined_ rounding mode and _added to the running value of C[m, n]_.
-  The rounding mode used for these intermediate additions is not required to match `frm`.
-
 The value of G is _implementation-defined_ and may depend on SEW, W, λ, LMUL, and the microarchitecture.
 It must satisfy:
 
