@@ -1704,23 +1704,13 @@ vbfloat16m4_t __riscv_vfqwimmacc_vv_bf16m4_u4m1(vbfloat16m4_t vd,
 ===== VLEN-portable code
 
 Because MUL_C = VLEN / (SEW × λ²), the accumulator register-group multiplier
-varies across implementations with different VLEN.
-The type suffix in a multiply-accumulate intrinsic name encodes MUL_C, so
-source code that hard-codes a specific MUL_C value (e.g.,
-`__riscv_vmmacc_vv_i32m2`) is tied to a particular VLEN.
+varies across implementations with different values of VLEN and λ, even for a fixed SEW tied to an output type.
+The type suffix in a long-form multiply-accumulate intrinsic name directly encodes MUL_C, whereas in an overloaded name that MUL_C is implicit.
+Either way, source code with IME intrinsics is tied to a specific combination of input/output types and value of MUL_C.
 
-The recommended approach for writing portable code mirrors the established
-practice for LMUL-agnostic RVV intrinsics: choose the _largest_ MUL_C the
-code is designed for and use its corresponding type throughout.
-On implementations where the actual MUL_C is smaller (i.e. VLEN is smaller),
-the configuration is simply illegal for the chosen (SEW, λ) and the code
-path is not entered; on implementations where MUL_C is equal or larger, the
-code runs correctly because the register allocator only relies on MUL_C
-registers being available, and a larger MUL_C satisfies that requirement.
-
-In practice this means portable software should be written for a target MUL_C
-(e.g. MUL_C=8 for maximum portability at SEW=8), with runtime selection of
-the appropriate code path based on the result of `vsetvl`.
+Althought it is possible to write more general assembly code, it is common industry practice to favor coding with compiler intrinsics.
+The recommended approach for writing portable code with IME intrinsics is to package multiple code paths in the same executable, each optimized for a specific value of C_MUL.
+Runtime selection of the appropriate code path is then performed based on the result of `vsetvl` and computations of MUL_C = VLEN / (SEW × λ²).
 
 [#integrated-matrix-insns,reftext="Instructions (in alphabetical order)"]
 === Instructions (in alphabetical order)
