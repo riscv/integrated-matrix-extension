@@ -454,7 +454,7 @@ contains a naturally ordered pair of 4-bit elements.  Software preparing
 input data in memory must pack adjacent elements within each byte
 accordingly.
 
-[*arithmetic-considerations]
+[#arithmetic-considerations]
 ==== Arithmetic considerations
 
 Each multiply-accumulate instruction computes, for every output element C[m, n]:
