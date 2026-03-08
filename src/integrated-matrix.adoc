@@ -1140,7 +1140,7 @@ Loads a 2D matrix tile from memory into the vector register group starting at `v
 Let _linesize_ = λ × LMUL.
 For each element index `i` in the body `[vstart, VL)` where the mask is enabled:
 
-    VD[i] = M[rs1 + (i / linesize) × LD + (i % linesize)]
+    VD[i] = M[rs1 + SEW × ((i / linesize) × LD + (i % linesizea))]
 
 This instruction is the correct choice when A is stored in row-major order or when B is
 stored in column-major order: in both cases the memory layout consists of _linesize_-element
@@ -1156,7 +1156,7 @@ Stores the 2D matrix tile held in the vector register group starting at `vs3` to
 Let _linesize_ = λ × LMUL.
 For each element index `i` in the body `[vstart, VL)` where the mask is enabled:
 
-    M[rs1 + (i / linesize) × LD + (i % linesize)] = VS[i]
+    M[rs1 + SEW × ((i / linesize) × LD + (i % linesize))] = VS[i]
 
 ===== `vmttl.v` — Transposing Tile Load
 
@@ -1170,7 +1170,7 @@ This instruction is used when a B tile is stored in row-major order, or when an 
 Let _linesize_ = λ × LMUL.
 For each element index `i` in the body `[vstart, VL)` where the mask is enabled:
 
-    VD[i] = M[rs1 + (i % linesize) × LD + (i / linesize)]
+    VD[i] = M[rs1 + SEW × ((i % linesize) × LD + (i / linesize))]
 
 ===== `vmtts.v` — Transposing Tile Store
 
@@ -1183,7 +1183,7 @@ Stores a 2D matrix tile from vector registers to memory, applying the inverse tr
 Let _linesize_ = λ × LMUL.
 For each element index `i` in the body `[vstart, VL)` where the mask is enabled:
 
-    M[rs1 + (i % linesize) × LD + (i / linesize)] = VS[i]
+    M[rs1 + SEW × ((i % linesize) × LD + (i / linesize))] = VS[i]
 
 <<<
 
