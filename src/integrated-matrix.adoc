@@ -454,6 +454,7 @@ contains a naturally ordered pair of 4-bit elements.  Software preparing
 input data in memory must pack adjacent elements within each byte
 accordingly.
 
+[*arithmetic-considerations]
 ==== Arithmetic considerations
 
 Each multiply-accumulate instruction computes, for every output element C[m, n]:
@@ -535,9 +536,9 @@ Because modular addition is both associative and commutative, the final result i
 [#zvvmm,reftext=Matrix-multiplication instructions (integer)]
 === Zvvmm: Extension for matrix multiplication on vector registers interpreted as 2D integer matrix tiles
 
-The `Zvvmm` family of extensions provides instructions that perform matrix multiply-accumulate on integer data, computing C ← C + A × B, where A, B, and C are matrix tiles held in the vector register file.
+The `Zvvmm` family of extensions provides instructions that perform matrix multiply-accumulate on integer data, computing C ← C + A × B^T^, where A, B, and C are matrix tiles held in the vector register file.
 
-The K-dimension of the multiplication (shared inner dimension of A and B) is determined by λ from `vtype`, scaled by a per-instruction widening factor W and further multiplied by LMUL:
+The K-dimension of the multiplication (shared inner dimension of A and B^T^) is determined by λ from `vtype`, scaled by a per-instruction widening factor W and further multiplied by LMUL:
 
     K_effective = λ × W × LMUL
 
@@ -574,7 +575,7 @@ microscaling (see <<integrated-matrix-microscaling>>).
 [#zvvfmm,reftext=Matrix-multiplication instructions (floating-point)]
 === Zvvfmm: Extension for matrix multiplication on vector registers interpreted as 2D floating-point matrix tiles
 
-The `Zvvfmm` family of extensions provides floating-point matrix multiply-accumulate instructions, computing C ← C + A × B.
+The `Zvvfmm` family of extensions provides floating-point matrix multiply-accumulate instructions, computing C ← C + A × B^T^.
 A, B, and C are matrix tiles held in the vector register file.
 
 The floating-point format of each operand tile is controlled by fields in `vtype`:
@@ -696,6 +697,10 @@ As with the integer multiply-accumulate instructions, vector masking is not
 supported.  When `vm=0`, the instruction does not apply a vector mask;
 instead, `v0` supplies paired E8M0 block-scale factors for microscaling
 operation (see <<integrated-matrix-microscaling>>).
+
+===== Mixed-format inputs arithmetic considerations
+
+Whenever mixed formats are used in the computational instructions, one must follow the guidelines in <<arithmetic-considerations>>.
 
 [#integrated-matrix-microscaling]
 ==== Microscaling support (`v0.scale`)
