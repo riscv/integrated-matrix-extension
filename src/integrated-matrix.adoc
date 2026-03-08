@@ -1193,12 +1193,13 @@ The tile dimensions are fully determined by the current vector configuration:
 
     M_tile     = VLEN / (SEW × λ)       (rows of A and C per computation)
     K_eff      = λ × W × LMUL           (shared K-dimension step)
-    N_tile     = VL / K_eff             (active columns of B and C; set via vsetvl)
-    N_tile_max = M_tile                  (maximum columns when VL = VL_max)
-    MUL_C      = VLEN / (SEW × λ²)     (C accumulator register group size)
+    N_tile     = VL / (λ × LMUL)        (active columns of B and C; set via vsetvl)
+    N_tile_max = M_tile                 (maximum columns when VL = VL_max)
+    MUL_C      = VLEN / (SEW × λ²)      (C accumulator register group size)
 
 `M_tile` is fixed by the hardware (VLEN) and the chosen SEW and λ; it cannot be changed by VL.
 `N_tile` is controlled by the programmer through VL; use `vsetvl` to select the largest `N_tile` that fits the remaining columns.
+VL must be a multiple of λ × LMUL, so only full columns can be selected.
 
 Because the multiply-accumulate instructions always read all `M_tile` rows of A independent of VL, loading an A tile requires VL = M_tile × K_eff (the natural maximum VL for the chosen LMUL).
 The B load and computation use the narrower VL = K_eff × N_tile.
