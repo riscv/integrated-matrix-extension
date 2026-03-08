@@ -734,8 +734,7 @@ applied, `v0` is not read, and the `bs` field is ignored.
 
 When microscaling is active (`vm=0`), each output element is computed as:
 
-    C[m, n] ← C[m, n] + Σ_{s=0}^{S−1} scale_A[m][s] × scale_B[n][s] ×
-                    Σ_{k ∈ block s} A[m, k] × B[k, n]
+    C[m, n] ← C[m, n] + Σ_{s=0}^{S−1} (scale_A[m][s] × scale_B[n][s] × (Σ_{k ∈ block s} A[m, k] × B[k, n]))
 
 where S = ⌈K_eff / block_size⌉ is the number of scale blocks per
 row/column, and block _s_ covers elements
@@ -1115,9 +1114,9 @@ Tile load and store instructions follow the standard vector element-status seman
 
 * _Active_ elements (body, mask enabled): loads fetch from memory and write `vd`; stores read `vs3` and write to memory.
   Active elements may raise memory exceptions.
-* _Inactive_ elements (body, mask disabled): loads do not update the destination register unless `vtype.vma`=1 (mask-agnostic), in which case those elements may be overwritten with 1s.
+* _Inactive_ elements (body, mask disabled): loads never raise exceptions and do not update the destination register unless `vtype.vma`=1 (mask-agnostic), in which case those elements may be overwritten with 1s.
   Stores do not write to memory and do not raise exceptions.
-* _Tail_ elements (index ≥ VL): loads do not update the destination register unless `vtype.vta`=1 (tail-agnostic), in which case those elements may be overwritten with 1s.
+* _Tail_ elements (index ≥ VL): loads never raise exceptions and do not update the destination register unless `vtype.vta`=1 (tail-agnostic), in which case those elements may be overwritten with 1s.
   Stores do not write to memory and do not raise exceptions.
 * _Prestart_ elements (index < `vstart`): neither the destination register nor memory is updated; no exceptions are raised.
 
