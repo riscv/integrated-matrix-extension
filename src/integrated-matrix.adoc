@@ -1290,13 +1290,15 @@ for (j = 0; j < N; j += N_tile) {
 
 Key observations:
 
-* The A tile must be loaded with `VL = M_tile × K_eff` (the maximum VL for the
+* The A tile must be loaded with `VL = M_tile × λ × LMUL` (the maximum VL for the
   chosen LMUL) because `vfmmacc.vv` always reads all `M_tile` rows of A
   regardless of the VL set for the computation.
   A separate `vsetvl` is therefore required before each `vmtl.v` for A.
 
-* The B load and the multiply-accumulate instruction share `VL = K_eff × N_tile`,
+* The B load and the multiply-accumulate instruction share `VL = λ × LMUL × N_tile`,
   which restricts computation to the current column block.
+
+* The A and B tile loads must be performed with the target SEW (element width of the C tile).
 
 * For integer GEMM, substitute `vmmacc.vv` for `vfmmacc.vv` and set `altfmt_A`
   and `altfmt_B` in `vtype` to select the desired operand signedness.
