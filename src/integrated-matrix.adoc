@@ -1004,7 +1004,7 @@ The B load and computation use the narrower VL = K_eff × N_tile.
 
 ==== C tile tail policy
 
-When N_tile < N_tile_max, the elements C[i, j] for 0 ≤ i < M_tile and N_tile ≤ j < N_tile_max are _C tile tail elements_.
+When N_tile < N_tile_max, the elements stem:[C_{i,j}] for 0 ≤ i < M_tile and N_tile ≤ j < N_tile_max are _C tile tail elements_.
 Multiply-accumulate instructions never read or write C tile tail elements.
 
 * If `vta` = 0 (tail-undisturbed): tail elements retain their pre-instruction values.
