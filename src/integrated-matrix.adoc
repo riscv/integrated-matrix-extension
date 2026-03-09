@@ -505,21 +505,21 @@ For non-widening instructions (W = 1), each product of two SEW-bit values is exa
 
 ===== Accumulation and rounding model (floating-point)
 
-The resulting value of element C[m,n] for any given LMUL must match the value computed by applying a series of multiply-accumulate instructions with LMUL=1, in increasing order of vector register indices.
+The resulting value of element stem:[C_{m,n}] for any given LMUL must match the value computed by applying a series of multiply-accumulate instructions with LMUL=1, in increasing order of vector register indices.
 Therefore, it is enough to specify the result of the computations
 
-    C[m, n] ← C[m, n] + Σ_{k=0}^{λ × W} A[m, k] × B[k, n]
+stem:[C_{m,n} ← C_{m,n} + \sum_{k=0}^{λ × W - 1} A_{m,k} × B_{k,n}]
 
 An implementation partitions the λ sub-dot-products for each output element into consecutive groups of G sub-dot-products.
 
 * Within each group, the G partial results are accumulated into a partial sum S using internal precision that requires no rounding to SEW precision inside a group.
 
-* After each group, the accumulated partial sum S is _added to the running value of_ C[m, n] by computing
+* After each group, the accumulated partial sum S is _added to the running value of_ stem:[C_{m,n}] by computing
 
-    C[m, n] ← round(C[m, n] + [round](S)),
+stem:[C_{m,n} ← round(C_{m,n} + (round(S)))],
 
 where the roundings are performed with the rounding mode from `frm`.
-The rounding of partial sum S _before_ it is accumulated to the running value of C[m,n] is optional.
+The rounding of partial sum S _before_ it is accumulated to the running value of stem:[C_{m,n}] is optional.
 
 The value of G is _implementation-defined_ and may depend on SEW, W, λ, LMUL, and the microarchitecture.
 It must satisfy:
