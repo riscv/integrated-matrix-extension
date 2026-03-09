@@ -978,6 +978,11 @@ For each element index `i` in the body `[vstart, VL)` where the mask is enabled:
 
     M[rs1 + (SEW ÷ 8) × ((i % linesize) × LD + (i / linesize))] = VS[i]
 
+[NOTE]
+====
+Transposing loads and stores should be performed with SEW set to the width of the actual data that is being loaded and transposed. Sub-byte elements (eg. OFP4) cannot be transposed directly.
+====
+
 <<<
 
 ==== Tile geometry for multiply-accumulate
