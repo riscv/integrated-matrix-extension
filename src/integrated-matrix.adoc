@@ -80,6 +80,45 @@ image::png/ime-tile-lmul_2_4.png[width=100%, align=center, alt="Diagram showing 
 LMUL scales the tile along the K dimension only, increasing the effective K dimension of the tile by a factor of LMUL. The blue arrows indicate the contiguous elements in the vector register groups that form the tiles in the ordering of element-wise 1D vector operations.
 
 
+=== Subextensions of Zvvm
+
+Table <<tbl-subextensions>> lists all computational subextensions in the Zvvm family.
+
+[#tbl-subextensions]
+.Computational subextensions in the Zvvm family of Integrated Matrix extensions.
+[cols="1,1,4,2", options="header"]
+|===
+|Extension       | Dependencies | Multiplicand Types           | Accumulator Type
+|Zvvmmi4b       ^| Zve64d       | [U]Int4, [U]Int4             | Int8
+|Zvvmmi4h       ^| Zve64d       | [U]Int4, [U]Int4             | Int16
+|Zvvmmi4w       ^| Zve64d       | [U]Int4, [U]Int4             | Int32
+|Zvvmmb         ^| Zve64d       | [U]Int8, [U]Int8             | Int8
+|Zvvmmbh        ^| Zve64d       | [U]Int8, [U]Int8             | Int16
+|Zvvmmbw        ^| Zve64d       | [U]Int8, [U]Int8             | Int32
+|Zvvmmh         ^| Zve64d       | [U]Int16, [U]Int16           | Int16
+|Zvvmmhw        ^| Zve64d       | [U]Int16, [U]Int16           | Int32
+|Zvvmmhd        ^| Zve64d       | [U]Int16, [U]Int16           | Int64
+|Zvvmmw         ^| Zve64d       | [U]Int32, [U]Int32           | Int32
+|Zvvmmwd        ^| Zve64d       | [U]Int32, [U]Int32           | Int64
+|Zvvmmd         ^| Zve64d       | [U]Int64, [U]Int64           | Int64
+|Zvvfmmofp4ofp8 ^| Zve64d       | OFP4 (E2M1), OFP4 (E2M1)         | OFP8
+|Zvvfmmofp4h    ^| Zve64d       | OFP4 (E2M1), OFP4 (E2M1)         | IEEE binary16
+|Zvvfmmofp4bf16 ^| Zve64d       | OFP4 (E2M1), OFP4 (E2M1)         | BFloat16
+|Zvvfmmofp8     ^| Zve64d       | OFP8 (E4M3 or E5M2), OFP8 (E4M3 or E5M2) | OFP8
+|Zvvfmmofp8h    ^| Zve64d       | OFP8 (E4M3 or E5M2), OFP8 (E4M3 or E5M2) | IEEE binary16
+|Zvvfmmofp8bf16 ^| Zve64d       | OFP8 (E4M3 or E5M2), OFP8 (E4M3 or E5M2) | BFloat16
+|Zvvfmmh        ^| Zve64d       | IEEE binary16, IEEE binary16 | IEEE binary16
+|Zvvfmmhf       ^| Zve64d       | IEEE binary16, IEEE binary16 | IEEE binary32
+|Zvvfmmhd       ^| Zve64d       | IEEE binary16, IEEE binary16 | IEEE binary64
+|Zvvfmmbf16     ^| Zve64d       | BFloat16, BFloat16           | BFloat16
+|Zvvfmmbf16f    ^| Zve64d       | BFloat16, BFloat16           | IEEE binary32
+|Zvvfmmbf16d    ^| Zve64d       | BFloat16, BFloat16           | IEEE binary64
+|Zvvfmmf        ^| Zve64d       | IEEE binary32, IEEE binary32 | IEEE binary32
+|Zvvfmmfd       ^| Zve64d       | IEEE binary32, IEEE binary32 | IEEE binary64
+|Zvvfmmd        ^| Zve64d       | IEEE binary64, IEEE binary64 | IEEE binary64
+|===
+
+
 === New fields in the Vector Type (`vtype`) Register
 
 The Zvvm family of Integrated Matrix extensions defines the following additional fields in the `vtype` CSR:
@@ -473,7 +512,7 @@ For non-widening instructions (W = 1), each product of two SEW-bit values is exa
 The resulting value of element stem:[C_{m,n}] for any given LMUL must match the value computed by applying a series of multiply-accumulate instructions with LMUL=1, in increasing order of vector register indices.
 Therefore, it is enough to specify the result of the computations
 
-stem:[C_{m,n} ← C_{m,n} + \sum_{k=0}^{λ × W - 1} A_{m,k} × B_{k,n}]
+stem:[C_{m,n} \leftarrow C_{m,n} + \sum_{k=0}^{λ W - 1} A_{m,k} \times B_{k,n}]
 
 An implementation partitions the λ sub-dot-products for each output element into consecutive groups of G sub-dot-products.
 
@@ -481,7 +520,7 @@ An implementation partitions the λ sub-dot-products for each output element int
 
 * After each group, the accumulated partial sum S is _added to the running value of_ stem:[C_{m,n}] by computing
 
-stem:[C_{m,n} ← round(C_{m,n} + (round(S)))],
+stem:[C_{m,n} \leftarrow round(C_{m,n} + (round(S)))],
 
 where the roundings are performed with the rounding mode from `frm`.
 The rounding of partial sum S _before_ it is accumulated to the running value of stem:[C_{m,n}] is optional.
@@ -3180,47 +3219,7 @@ Included in::
 |===
 
 
-=== Subextensions of Zvvm
-
-Table <<tbl-subextensions>> lists all computational subextensions in the Zvvm family.
-
-[#tbl-subextensions]
-.Computational subextensions in the Zvvm family of Integrated Matrix extensions.
-[cols="1,1,4,2", options="header"]
-|===
-|Extension       | Dependencies | Multiplicand Types           | Accumulator Type
-|Zvvmmi4b       ^| Zve64d       | [U]Int4, [U]Int4             | Int8
-|Zvvmmi4h       ^| Zve64d       | [U]Int4, [U]Int4             | Int16
-|Zvvmmi4w       ^| Zve64d       | [U]Int4, [U]Int4             | Int32
-|Zvvmmb         ^| Zve64d       | [U]Int8, [U]Int8             | Int8
-|Zvvmmbh        ^| Zve64d       | [U]Int8, [U]Int8             | Int16
-|Zvvmmbw        ^| Zve64d       | [U]Int8, [U]Int8             | Int32
-|Zvvmmbd        ^| Zve64d       | [U]Int8, [U]Int8             | Int64
-|Zvvmmh         ^| Zve64d       | [U]Int16, [U]Int16           | Int16
-|Zvvmmhw        ^| Zve64d       | [U]Int16, [U]Int16           | Int32
-|Zvvmmhd        ^| Zve64d       | [U]Int16, [U]Int16           | Int64
-|Zvvmmw         ^| Zve64d       | [U]Int32, [U]Int32           | Int32
-|Zvvmmwd        ^| Zve64d       | [U]Int32, [U]Int32           | Int64
-|Zvvmmd         ^| Zve64d       | [U]Int64, [U]Int64           | Int64
-|Zvvfmmofp4ofp8 ^| Zve64d       | OFP4 (E2M1), OFP4 (E2M1)         | OFP8
-|Zvvfmmofp4h    ^| Zve64d       | OFP4 (E2M1), OFP4 (E2M1)         | IEEE binary16
-|Zvvfmmofp4bf16 ^| Zve64d       | OFP4 (E2M1), OFP4 (E2M1)         | BFloat16
-|Zvvfmmofp8     ^| Zve64d       | OFP8 (E4M3 or E5M2), OFP8 (E4M3 or E5M2) | OFP8
-|Zvvfmmofp8h    ^| Zve64d       | OFP8 (E4M3 or E5M2), OFP8 (E4M3 or E5M2) | IEEE binary16
-|Zvvfmmofp8bf16 ^| Zve64d       | OFP8 (E4M3 or E5M2), OFP8 (E4M3 or E5M2) | BFloat16
-|Zvvfmmofp8w    ^| Zve64d       | OFP8 (E4M3 or E5M2), OFP8 (E4M3 or E5M2) | IEEE binary32
-|Zvvfmmh        ^| Zve64d       | IEEE binary16, IEEE binary16 | IEEE binary16
-|Zvvfmmhf       ^| Zve64d       | IEEE binary16, IEEE binary16 | IEEE binary32
-|Zvvfmmhd       ^| Zve64d       | IEEE binary16, IEEE binary16 | IEEE binary64
-|Zvvfmmbf16     ^| Zve64d       | BFloat16, BFloat16           | BFloat16
-|Zvvfmmbf16f    ^| Zve64d       | BFloat16, BFloat16           | IEEE binary32
-|Zvvfmmbf16d    ^| Zve64d       | BFloat16, BFloat16           | IEEE binary64
-|Zvvfmmf        ^| Zve64d       | IEEE binary32, IEEE binary32 | IEEE binary32
-|Zvvfmmfd       ^| Zve64d       | IEEE binary32, IEEE binary32 | IEEE binary64
-|Zvvfmmd        ^| Zve64d       | IEEE binary64, IEEE binary64 | IEEE binary64
-|===
-
-==== Microscaling Subextensions
+=== Microscaling Subextensions
 
 Each microscaling subextension enables the `vm=0` / `v0.scale` encoding for
 a specific (input format, accumulator format, block size) combination.
