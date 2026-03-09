@@ -17,6 +17,7 @@ We focus, in particular, on the computation of C ← A × B^T^ + C, where A (μ 
 The extensions are designed to support implementations spanning a wide range of microarchitectures and performance points: from small, embedded in-order cores targeting low-power and area-constrained applications, to large, high-performance out-of-order implementations targeting HPC and AI workloads.
 A key design goal is that the same binary executes correctly—and achieves near-peak arithmetic throughput—across this entire range without recompilation.
 
+
 === Overview
 
 The Zvvm family of Integrated Matrix extensions (Zvvmm, Zvvfmm, Zvvmtls) provides the following subextensions:
@@ -66,8 +67,6 @@ The tile dimensions follow from the widening and LMUL settings:
 
 The accumulator register group has cardinality MUL_C = VLEN ÷ (SEW × λ²), independent of both W and LMUL.
 
-
-
 The elements in the vector registers are contiguous in the λ direction, as depicted in
 <<ime-geometry-fig>>. Tile A and C elements are sorted in row-major order while tile B^T^
 elements are sorted in column-major order. This choice allows the implementation of the
@@ -79,6 +78,7 @@ simplifies the implementation of high-rank updates based outer products.
 image::png/ime-tile-lmul_2_4.png[width=100%, align=center, alt="Diagram showing LMUL scaling of matrix tiles."]
 
 LMUL scales the tile along the K dimension only, increasing the effective K dimension of the tile by a factor of LMUL. The blue arrows indicate the contiguous elements in the vector register groups that form the tiles in the ordering of element-wise 1D vector operations.
+
 
 === New fields in the Vector Type (`vtype`) Register
 
@@ -211,6 +211,7 @@ future revision.  The likely final location is just below the `altfmt_A` and `al
 bits (i.e., at `vtype[XLEN-7]`).
 ====
 
+
 === Storage formats
 
 ==== Element packing in input tiles
@@ -292,7 +293,6 @@ microscaling (see <<integrated-matrix-microscaling>>).
 
 For integer multiply-accumulate instructions, all intermediate results are reduced modulo 2^SEW^.
 Because modular addition is both associative and commutative, the final result is uniquely defined regardless of the accumulation order or grouping factor.
-
 
 [#zvvfmm,reftext=Matrix-multiplication instructions (floating-point)]
 === Zvvfmm: Extension for matrix multiplication on vector registers interpreted as 2D floating-point matrix tiles
@@ -519,7 +519,6 @@ Floating-point exception flags (inexact, overflow, underflow, invalid, etc.) are
 We could ammend the requirement that "... the G partial results are accumulated into a partial sum S using internal precision that requires no rounding to SEW precision inside a group" with the license to use the Bulk Normalization of Dot-Products (BNDP) procedure. If we do that, we must require the implementor to disclose the choice of BNDP parameters.
 Adding the license would result in more compatibility with other RISC-V matrix extensions.
 ====
-
 
 [#integrated-matrix-microscaling]
 ==== Microscaling support (`v0.scale`)
@@ -833,52 +832,9 @@ each scale array with the correct tile stride, then `vzip.vv` pairs them:
 
 ===== Microscaling subextensions
 
-Each microscaling subextension enables the `vm=0` / `v0.scale` encoding for
-a specific (input format, accumulator format, block size) combination.
-A floating-point microscaling subextension implies its corresponding base
-subextension: for example, Zvvfmmmxfp4h implies Zvvfmmofp4h, which provides
-the underlying OFP4→FP16 instruction support.  Only narrow input formats
-(OFP4, OFP8) define FP microscaling variants.
-The integer MX subextensions (`Zvvfmmmxi*`, `Zvvfmmnxi*`) do not imply a
-base subextension: `vfwimmacc.vv` and `vfqwimmacc.vv` have no non-MX
-FP-accumulate form (the `vm=1` encoding of those opcodes is the existing
-integer-accumulate `vwmmacc.vv` / `vqwmmacc.vv`).
-The block size and implication relationships are listed in <<tbl-mx-subextensions>>.
-
-[#tbl-mx-subextensions]
-.Microscaling subextensions
-[cols="1,1,1,3,3", options="header"]
-|===
-|Extension        | BS | Implies          | Multiplicand Types                | Accumulator Type
-
-|Zvvfmmmxfp4ofp8  ^| 32 ^| Zvvfmmofp4ofp8  | MXFP4 (E8M0-scaled OFP4), MXFP4   | OFP8
-|Zvvfmmmxfp4h     ^| 32 ^| Zvvfmmofp4h     | MXFP4, MXFP4                      | IEEE binary16
-|Zvvfmmmxfp4bf16  ^| 32 ^| Zvvfmmofp4bf16  | MXFP4, MXFP4                      | BFloat16
-|Zvvfmmmxfp8     ^| 32 ^| Zvvfmmofp8      | MXFP8 (E8M0-scaled OFP8), MXFP8  | OFP8
-|Zvvfmmmxfp8h    ^| 32 ^| Zvvfmmofp8h     | MXFP8, MXFP8                     | IEEE binary16
-|Zvvfmmmxfp8bf16 ^| 32 ^| Zvvfmmofp8bf16  | MXFP8, MXFP8                     | BFloat16
-|Zvvfmmmxfp8w    ^| 32 ^| Zvvfmmofp8w     | MXFP8, MXFP8                     | IEEE binary32
-|Zvvfmmnxfp4ofp8  ^| 16 ^| Zvvfmmmxfp4ofp8  | MXFP4 (E8M0-scaled OFP4), MXFP4   | OFP8
-|Zvvfmmnxfp4h     ^| 16 ^| Zvvfmmmxfp4h     | MXFP4, MXFP4                      | IEEE binary16
-|Zvvfmmnxfp4bf16  ^| 16 ^| Zvvfmmmxfp4bf16  | MXFP4, MXFP4                      | BFloat16
-|Zvvfmmnxfp8     ^| 16 ^| Zvvfmmmxfp8     | MXFP8 (E8M0-scaled OFP8), MXFP8  | OFP8
-|Zvvfmmnxfp8h    ^| 16 ^| Zvvfmmmxfp8h    | MXFP8, MXFP8                     | IEEE binary16
-|Zvvfmmnxfp8bf16 ^| 16 ^| Zvvfmmmxfp8bf16 | MXFP8, MXFP8                     | BFloat16
-|Zvvfmmnxfp8w    ^| 16 ^| Zvvfmmmxfp8w    | MXFP8, MXFP8                     | IEEE binary32
-
-|Zvvfmmmxi8h     ^| 32 ^| —               | MXINT8 (E8M0-scaled Int8), MXINT8 | IEEE binary16
-|Zvvfmmmxi8bf16  ^| 32 ^| —               | MXINT8 (E8M0-scaled Int8), MXINT8 | BFloat16
-|Zvvfmmmxi8w     ^| 32 ^| —               | MXINT8 (E8M0-scaled Int8), MXINT8 | IEEE binary32
-|Zvvfmmmxi4h     ^| 32 ^| —               | MXINT4 (E8M0-scaled Int4), MXINT4 | IEEE binary16
-|Zvvfmmmxi4bf16  ^| 32 ^| —               | MXINT4 (E8M0-scaled Int4), MXINT4 | BFloat16
-|Zvvfmmnxi8h     ^| 16 ^| Zvvfmmmxi8h     | MXINT8 (E8M0-scaled Int8), MXINT8 | IEEE binary16
-|Zvvfmmnxi8bf16  ^| 16 ^| Zvvfmmmxi8bf16  | MXINT8 (E8M0-scaled Int8), MXINT8 | BFloat16
-|Zvvfmmnxi8w     ^| 16 ^| Zvvfmmmxi8w     | MXINT8 (E8M0-scaled Int8), MXINT8 | IEEE binary32
-|Zvvfmmnxi4h     ^| 16 ^| Zvvfmmmxi4h     | MXINT4 (E8M0-scaled Int4), MXINT4 | IEEE binary16
-|Zvvfmmnxi4bf16  ^| 16 ^| Zvvfmmmxi4bf16  | MXINT4 (E8M0-scaled Int4), MXINT4 | BFloat16
-|===
-
-NOTE: See <<Block size selection>> for LMUL restrictions when `bs=1`.
+Microscaling subextensions that add E8M0-scaled variants of the narrow
+input formats (OFP4, OFP8) are listed separately in
+<<tbl-mx-subextensions>>.
 
 [#zvvmtls,reftext=Load/store instructions for matrix tiles]
 === Zvvmtls: Extension for loading and storing vector registers interpreted as 2D matrix tiles
@@ -3218,6 +3174,7 @@ Included in::
 |Draft
 |===
 
+
 === Subextensions of Zvvm
 
 Table <<tbl-subextensions>> lists all computational subextensions in the Zvvm family.
@@ -3258,9 +3215,55 @@ Table <<tbl-subextensions>> lists all computational subextensions in the Zvvm fa
 |Zvvfmmd        ^| Zve64d       | IEEE binary64, IEEE binary64 | IEEE binary64
 |===
 
-Microscaling subextensions that add E8M0-scaled variants of the narrow
-input formats (OFP4, OFP8) are listed separately in
-<<tbl-mx-subextensions>>.
+==== Microscaling Subextensions
+
+Each microscaling subextension enables the `vm=0` / `v0.scale` encoding for
+a specific (input format, accumulator format, block size) combination.
+A floating-point microscaling subextension implies its corresponding base
+subextension: for example, Zvvfmmmxfp4h implies Zvvfmmofp4h, which provides
+the underlying OFP4→FP16 instruction support.  Only narrow input formats
+(OFP4, OFP8) define FP microscaling variants.
+The integer MX subextensions (`Zvvfmmmxi*`, `Zvvfmmnxi*`) do not imply a
+base subextension: `vfwimmacc.vv` and `vfqwimmacc.vv` have no non-MX
+FP-accumulate form (the `vm=1` encoding of those opcodes is the existing
+integer-accumulate `vwmmacc.vv` / `vqwmmacc.vv`).
+The block size and implication relationships are listed in <<tbl-mx-subextensions>>.
+
+[#tbl-mx-subextensions]
+.Microscaling subextensions
+[cols="1,1,1,3,3", options="header"]
+|===
+|Extension        | BS | Implies          | Multiplicand Types                | Accumulator Type
+
+|Zvvfmmmxfp4ofp8  ^| 32 ^| Zvvfmmofp4ofp8  | MXFP4 (E8M0-scaled OFP4), MXFP4   | OFP8
+|Zvvfmmmxfp4h     ^| 32 ^| Zvvfmmofp4h     | MXFP4, MXFP4                      | IEEE binary16
+|Zvvfmmmxfp4bf16  ^| 32 ^| Zvvfmmofp4bf16  | MXFP4, MXFP4                      | BFloat16
+|Zvvfmmmxfp8     ^| 32 ^| Zvvfmmofp8      | MXFP8 (E8M0-scaled OFP8), MXFP8  | OFP8
+|Zvvfmmmxfp8h    ^| 32 ^| Zvvfmmofp8h     | MXFP8, MXFP8                     | IEEE binary16
+|Zvvfmmmxfp8bf16 ^| 32 ^| Zvvfmmofp8bf16  | MXFP8, MXFP8                     | BFloat16
+|Zvvfmmmxfp8w    ^| 32 ^| Zvvfmmofp8w     | MXFP8, MXFP8                     | IEEE binary32
+|Zvvfmmnxfp4ofp8  ^| 16 ^| Zvvfmmmxfp4ofp8  | MXFP4 (E8M0-scaled OFP4), MXFP4   | OFP8
+|Zvvfmmnxfp4h     ^| 16 ^| Zvvfmmmxfp4h     | MXFP4, MXFP4                      | IEEE binary16
+|Zvvfmmnxfp4bf16  ^| 16 ^| Zvvfmmmxfp4bf16  | MXFP4, MXFP4                      | BFloat16
+|Zvvfmmnxfp8     ^| 16 ^| Zvvfmmmxfp8     | MXFP8 (E8M0-scaled OFP8), MXFP8  | OFP8
+|Zvvfmmnxfp8h    ^| 16 ^| Zvvfmmmxfp8h    | MXFP8, MXFP8                     | IEEE binary16
+|Zvvfmmnxfp8bf16 ^| 16 ^| Zvvfmmmxfp8bf16 | MXFP8, MXFP8                     | BFloat16
+|Zvvfmmnxfp8w    ^| 16 ^| Zvvfmmmxfp8w    | MXFP8, MXFP8                     | IEEE binary32
+
+|Zvvfmmmxi8h     ^| 32 ^| —               | MXINT8 (E8M0-scaled Int8), MXINT8 | IEEE binary16
+|Zvvfmmmxi8bf16  ^| 32 ^| —               | MXINT8 (E8M0-scaled Int8), MXINT8 | BFloat16
+|Zvvfmmmxi8w     ^| 32 ^| —               | MXINT8 (E8M0-scaled Int8), MXINT8 | IEEE binary32
+|Zvvfmmmxi4h     ^| 32 ^| —               | MXINT4 (E8M0-scaled Int4), MXINT4 | IEEE binary16
+|Zvvfmmmxi4bf16  ^| 32 ^| —               | MXINT4 (E8M0-scaled Int4), MXINT4 | BFloat16
+|Zvvfmmnxi8h     ^| 16 ^| Zvvfmmmxi8h     | MXINT8 (E8M0-scaled Int8), MXINT8 | IEEE binary16
+|Zvvfmmnxi8bf16  ^| 16 ^| Zvvfmmmxi8bf16  | MXINT8 (E8M0-scaled Int8), MXINT8 | BFloat16
+|Zvvfmmnxi8w     ^| 16 ^| Zvvfmmmxi8w     | MXINT8 (E8M0-scaled Int8), MXINT8 | IEEE binary32
+|Zvvfmmnxi4h     ^| 16 ^| Zvvfmmmxi4h     | MXINT4 (E8M0-scaled Int4), MXINT4 | IEEE binary16
+|Zvvfmmnxi4bf16  ^| 16 ^| Zvvfmmmxi4bf16  | MXINT4 (E8M0-scaled Int4), MXINT4 | BFloat16
+|===
+
+NOTE: See <<Block size selection>> for LMUL restrictions when `bs=1`.
+
 
 === Encoding map
 
