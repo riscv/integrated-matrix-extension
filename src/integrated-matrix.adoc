@@ -933,6 +933,12 @@ It is expected that implementations will optimize the case of `rs2 = x0` to load
 Efficient implementation of tile loads with `rs2 = x0` are essential to high-performance linear algebra kernels.
 ====
 
+When using a vector length lower than the maximum for the data width, the data is loaded such that it fills full rows in an A tile or columns in a B^T^ tile. The impact is sketched in <<ime-load-store-vl>>.
+
+[#ime-load-store-vl]
+.Examples of elemnent distribution for full (left) and reduced vector length matrix tile load / store operations.
+image::png/ime-load-store-vl.png[width="100%"]
+
 ==== Instructions
 
 All tile load/store instructions support two optional operands that follow `rs2` in the assembly syntax:
