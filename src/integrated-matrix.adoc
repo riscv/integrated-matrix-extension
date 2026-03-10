@@ -111,6 +111,7 @@ The subextensions specific to microscaling are listed separately in <<mx-subexte
 |Zvvfmmofp8     ^| Zve64d       | OFP8 (E4M3 or E5M2), OFP8 (E4M3 or E5M2) | OFP8
 |Zvvfmmofp8h    ^| Zve64d       | OFP8 (E4M3 or E5M2), OFP8 (E4M3 or E5M2) | IEEE binary16
 |Zvvfmmofp8bf16 ^| Zve64d       | OFP8 (E4M3 or E5M2), OFP8 (E4M3 or E5M2) | BFloat16
+|Zvvfmmofp8w    ^| Zve64d       | OFP8 (E4M3 or E5M2), OFP8 (E4M3 or E5M2) | IEEE binary32
 |Zvvfmmofp8d    ^| Zve64d       | OFP8 (E4M3 or E5M2), OFP8 (E4M3 or E5M2) | IEEE binary64
 |Zvvfmmh        ^| Zve64d       | IEEE binary16, IEEE binary16 | IEEE binary16
 |Zvvfmmhf       ^| Zve64d       | IEEE binary16, IEEE binary16 | IEEE binary32
