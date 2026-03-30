@@ -547,10 +547,10 @@ An implementation partitions the λ sub-dot-products for each output element int
 
 * After each group, the accumulated partial sum S is _added to the running value of_ stem:[C_{m,n}] by computing
 
-stem:[C_{m,n} \leftarrow round(C_{m,n} + (round(S)))],
+stem:[C_{m,n} \leftarrow round_{frm}(C_{m,n} + (round_{rto}(S)))],
 
-where the roundings are performed with the rounding mode from `frm`.
-The rounding of partial sum S _before_ it is accumulated to the running value of stem:[C_{m,n}] is optional.
+where the accumulation rounding is performed with the rounding mode from `frm`.
+The rounding of partial sum S _before_ it is accumulated to the running value of stem:[C_{m,n}] is optional and, if performed, must use round-to-odd (rto) mode.
 
 The value of G is _implementation-defined_ and may depend on SEW, W, λ, LMUL, and the microarchitecture.
 It must satisfy:
