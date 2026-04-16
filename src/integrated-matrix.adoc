@@ -474,7 +474,7 @@ The following table lists the integer matrix tile multiplication instructions. T
 
 | `vfmmacc.vv vd, vs1, vs2[, v0.scale]`    | 1 | SEW     | SEW | floating point and MX scaled A/B tiles
 | `vfwmmacc.vv vd, vs1, vs2[, v0.scale]`  | 2 | SEW/2   | SEW | floating point and MX scaled A/B tiles
-| `vqmmacc.vv vd, vs1, vs2[, v0.scale]` | 4 | SEW/4   | SEW | floating point and MX scaled A/B tiles
+| `vfqmmacc.vv vd, vs1, vs2[, v0.scale]` | 4 | SEW/4   | SEW | floating point and MX scaled A/B tiles
 | `vf8wmmacc.vv vd, vs1, vs2[, v0.scale]` | 8 | SEW/8   | SEW | floating point and MX scaled A/B tiles
 | `vfwimmacc.vv vd, vs1, vs2, v0.scale`   | 2 | SEW/2   | SEW | only MX-scaled integer A/B tiles
 | `vfqimmacc.vv vd, vs1, vs2, v0.scale`  | 4 | SEW/4   | SEW | only MX-scaled integer A/B tiles
@@ -555,7 +555,7 @@ E4M3 or E5M2.  All four combinations are covered by the same OFP8
 subextension for the given output format.
 
 NOTE: Mixed OFP8 inputs (E4M3 × E5M2) are only permitted with widening
-instructions (`vfwmmacc.vv`, `vqmmacc.vv`), not with `vfmmacc.vv`
+instructions (`vfwmmacc.vv`, `vfqmmacc.vv`), not with `vfmmacc.vv`
 (OFP8 → OFP8), because the exact product (up to 7 significand bits) exceeds
 the OFP8 output precision (p ≤ 4).
 
@@ -564,7 +564,7 @@ the OFP8 output precision (p ≤ 4).
 For 16-bit inputs, `altfmt_A` and `altfmt_B` independently select IEEE
 binary16 or BFloat16.  When both are the same, a single subextension
 suffices (Zvvfp16mm* for IEEE binary16, Zvvbf16mm* for BFloat16), and all
-three instructions (`vfmmacc.vv`, `vfwmmacc.vv`, `vqmmacc.vv`) are
+three instructions (`vfmmacc.vv`, `vfwmmacc.vv`, `vfqmmacc.vv`) are
 available.
 
 When `altfmt_A ≠ altfmt_B` (one input is IEEE binary16 and the other is
@@ -585,7 +585,7 @@ is missing, the instruction raises an illegal-instruction exception.
 | Instruction | Output format | Required subextensions (both must be present)
 
 | vfwmmacc.vv | FP32 (SEW=32)          | Zvvfp16fp32mm AND Zvvbf16fp32mm
-| vqmmacc.vv| FP64 (SEW=64)          | Zvvfp16fp64mm AND Zvvbf16fp64mm
+| vfqmmacc.vv| FP64 (SEW=64)          | Zvvfp16fp64mm AND Zvvbf16fp64mm
 |===
 
 If the required subextensions are not both present, the instruction raises an illegal-instruction exception.
@@ -598,7 +598,7 @@ not apply.
 
 All multiply and add operations use the dynamic rounding mode from `frm`; floating-point exception flags are accumulated into `fflags`.
 
-The K-dimension, tile-dimension formulae, MUL_C, and instruction-to-widening-factor mapping are the same as for the integer family (see <<zvvmm>>); the floating-point mnemonics are `vfmmacc.vv` (W=1), `vfwmmacc.vv` (W=2), and `vqmmacc.vv` (W=4).
+The K-dimension, tile-dimension formulae, MUL_C, and instruction-to-widening-factor mapping are the same as for the integer family (see <<zvvmm>>); the floating-point mnemonics are `vfmmacc.vv` (W=1), `vfwmmacc.vv` (W=2), and `vfqmmacc.vv` (W=4).
 
 As with the integer multiply-accumulate instructions, vector masking is not
 supported.  When `vm=0`, the instruction does not apply a vector mask;
@@ -646,30 +646,37 @@ The implementation-defined grouping factor `G` is applied separately within each
 * `G` is a power of two;
 * 1 ≤ `G` ≤ λ.
 
-* Within each group, the `G` partial results are accumulated into a partial sum `S`, according to an implementation-defined parameter `psm`.
+* Within each group, the G × W pairwise products are reduced into a partial sum `S`, according to an implementation-defined parameter `psm`.
 
 ** If `psm=0`, the partial sum `S` may be formed using any internal precision and organization that does not require rounding to the accumulator format within the group.
 
-** If `psm=1`, the exact products belonging to the group shall be accumulated in a bulk-normalized representation according to the RVBNA Algorithm, or in an equivalent representation producing the same numerical result, and the resulting group sum shall then be rounded once to the C accumulator format using round-to-odd, thus producing the partial sum `S`.
+** If `psm=1`, the exact products belonging to the group shall be accumulated in a bulk-normalized representation according to the RVBNA Algorithm, or in an equivalent representation producing the same numerical result.
 
-** If `psm=2`, the exact products belonging to the group shall first be summed in infinite precision, and then rounded to the accumulator format according to the rounding mode specified in `frm`, thus producing the partial sum `S`.
+* Once the partial sum `S` is computed, and before it is accumulated into the result C, it is rounded according to an implementation-defined parameter `rnd`.
 
-* After each group, the accumulated partial sum `S` is added to the running value of stem:[C_{i,j}] by computing
+** If `rnd=frm`, partial sum `S` is rounded to the C accumulator format using the rounding mode from `frm`.
+
+** If `rnd=rto`, partial sum `S` is rounded to the C accumulator format using round-to-odd.
+
+** If `rnd=xct`, partial sum `S` is kept in its exact representation, without rounding.
+
+* After each group, the rounded partial sum `S` is accumulated into the running value of stem:[C_{i,j}] by computing
 
 stem:[C_{i,j} \leftarrow round_{frm}(C_{i,j} + S)].
 
 The accumulation rounding is performed with the rounding mode from `frm`.
+If `rnd=xct`, this is the only rounding step in the update of stem:[C_{i,j}] by a group of dot-products.
 
-Supported values of `G` and `psm` by an implementation may depend on `SEW`, `W`, and `lambda`.
-An implementation must disclose all supported combinations, preferably by publishing a table of all supported (SEW, W, lambda) -> (G, psm) mappings.
+Supported values of `G`, `psm`, and `rnd` by an implementation may depend on `SEW`, `W`, and `lambda`.
+An implementation must disclose all supported combinations, preferably by publishing a table of all supported (SEW, W, lambda) -> (G, psm, rnd) mappings.
 The floating-point result of a matrix multiply-accumulate instruction is fully determined by this specification.
 
-The resulting number of rounding operations per output element of C is [2](λ × LMUL) ÷ G, where the factor of 2 is present if the accumulated partial sum is rounded before being added to the running value.
+The resulting number of rounding operations per output element of C is [2](λ × LMUL) ÷ G, where the factor of 2 is present if the reduced partial sum is rounded before being added to the running value.
 
 [NOTE]
 ====
-A Zvvm implementation can produce the exact same results as the analogous Zvtm implementation when operating on 16- and 8-bit inputs by setting `psm=1` and choosing a suitable architectural value of `G`: `G=2` for 16-bit inputs with 32-bit outputs, and `G=1` for 8-bit inputs with 32-bit outputs.
-For input element widths of 32 bits or greater, compatibility with the analogous Zvtm instruction is obtained with `G=1` and `psm=2`, so that each group contains a single product and the partial sum `S` is that product rounded according to `frm`.
+A Zvvm implementation can produce the exact same results as the analogous Zvtm implementation when operating on 16- and 8-bit inputs by setting `psm=1`, `rnd=rto`, and choosing a suitable architectural value of `G`: `G=2` for 16-bit inputs with 32-bit outputs, and `G=1` for 8-bit inputs with 32-bit outputs.
+For input element widths of 32 bits or greater, compatibility with the analogous Zvtm instruction is obtained with `G=1`, `psm=0`, and `rnd=frm` so that each group contains a single product and the partial sum `S` is that product rounded according to `frm`.
 
 In a *systolic-array* datapath, G is typically 1: each sub-dot-product is rounded and added to C immediately, yielding λ × LMUL rounding additions per output element.
 
@@ -720,7 +727,7 @@ final operand, analogous to `v0.t` for masked operations in the base V
 extension:
 
     vfwmmacc.vv  vd, vs1, vs2, v0.scale
-    vqmmacc.vv vd, vs1, vs2, v0.scale
+    vfqmmacc.vv vd, vs1, vs2, v0.scale
     vf8wmmacc.vv vd, vs1, vs2, v0.scale
 
 When `vm=0` is not specified (i.e., `vm=1`, the default), no scaling is
@@ -880,7 +887,7 @@ illegal-instruction exception.
 |===
 | Input format | Instruction | W | SEW | Max LMUL
 
-| FP4 → FP16/BF16   | vqmmacc  | 4 | 16 | 4
+| FP4 → FP16/BF16   | vfqmmacc  | 4 | 16 | 4
 | FP4 → OFP8         | vfwmmacc   | 2 | 8  | 4
 | Int4 → FP16/BF16   | vfqimmacc | 4 | 16 | 4
 | All others          | —          | — | —  | 8 (no restriction)
@@ -889,7 +896,7 @@ illegal-instruction exception.
 ===== Applicability
 
 Microscaling via `v0.scale` is supported on the widening floating-point
-multiply-accumulate instructions (`vfwmmacc.vv`, `vqmmacc.vv`, `vf8wmmacc.vv`)
+multiply-accumulate instructions (`vfwmmacc.vv`, `vfqmmacc.vv`, `vf8wmmacc.vv`)
 and on the integer-input FP-accumulate instructions `vfwimmacc.vv` (MXINT8→FP16/BF16),
 `vfqimmacc.vv` (MXINT4→FP16/BF16, MXINT8→FP32),
 and `vf8wimmacc.vv` (MXINT4→FP32, MXINT8→FP64).
@@ -1357,8 +1364,8 @@ Key observations:
   and `altfmt_B` in `vtype` to select the desired operand signedness.
   The load instructions are unchanged.
 
-* For widening variants (W=2 or W=4), use `vfwmmacc.vv`/`vqmmacc.vv` or
-  `vwmmacc.vv`/`vqmmacc.vv`.
+* For widening variants (W=2 or W=4), use `vfwmmacc.vv`/`vfqmmacc.vv` or
+  `vwmmacc.vv`/`vfqmmacc.vv`.
   The narrower A and B element widths are encoded in the multiply-accumulate
   instruction; the tile load instructions require no modification.
 
@@ -1672,24 +1679,24 @@ vfloat64m1_t __riscv_vfwmmacc_vv_f64m1(vfloat64m1_t vd,
                                         vfloat32m1_t vs1, vfloat32m1_t vs2, size_t vl);
 --
 
-For `vqmmacc.vv` (W=4), A/B use SEW/4:
+For `vfqmmacc.vv` (W=4), A/B use SEW/4:
 
 [source,c]
 --
 /* FP16 accum / OFP4 E2M1 inputs, VLEN=256, λ=2: MUL_C=4.  LMUL=1 (default): */
-vfloat16m4_t __riscv_vqmmacc_vv_f16m4_f4e2m1m1(vfloat16m4_t vd,
+vfloat16m4_t __riscv_vfqmmacc_vv_f16m4_f4e2m1m1(vfloat16m4_t vd,
                                                    vfloat4e2m1m1_t vs1, vfloat4e2m1m1_t vs2, size_t vl);
 /* BF16 accum / OFP4 E2M1 inputs, VLEN=256, λ=2: MUL_C=4.  LMUL=1 (default): */
-vbfloat16m4_t __riscv_vqmmacc_vv_bf16m4_f4e2m1m1(vbfloat16m4_t vd,
+vbfloat16m4_t __riscv_vfqmmacc_vv_bf16m4_f4e2m1m1(vbfloat16m4_t vd,
                                                      vfloat4e2m1m1_t vs1, vfloat4e2m1m1_t vs2, size_t vl);
 /* FP32 accum / OFP8 E4M3 inputs, VLEN=256, λ=2: MUL_C=2.  LMUL=1 (default): */
-vfloat32m2_t __riscv_vqmmacc_vv_f32m2_f8e4m3m1(vfloat32m2_t vd,
+vfloat32m2_t __riscv_vfqmmacc_vv_f32m2_f8e4m3m1(vfloat32m2_t vd,
                                                    vfloat8e4m3m1_t vs1, vfloat8e4m3m1_t vs2, size_t vl);
 /* FP64 accum / BF16 inputs, VLEN=256, λ=2: MUL_C=1.  LMUL=1 (default): */
-vfloat64m1_t __riscv_vqmmacc_vv_f64m1_bf16m1(vfloat64m1_t vd,
+vfloat64m1_t __riscv_vfqmmacc_vv_f64m1_bf16m1(vfloat64m1_t vd,
                                                  vbfloat16m1_t vs1, vbfloat16m1_t vs2, size_t vl);
 /* FP64 accum / FP16 inputs, VLEN=256, λ=2: MUL_C=1.  LMUL=1 (default): */
-vfloat64m1_t __riscv_vqmmacc_vv_f64m1(vfloat64m1_t vd,
+vfloat64m1_t __riscv_vfqmmacc_vv_f64m1(vfloat64m1_t vd,
                                          vfloat16m1_t vs1, vfloat16m1_t vs2, size_t vl);
 --
 
@@ -1708,8 +1715,8 @@ vfloat32m2_t __riscv_vfwmmacc_vv_f32m2_bf16m1(vfloat32m2_t vd,
 /* vfwmmacc.vv FP16 accum / OFP8 E5M2 inputs (altfmt_A=B=1 for 8-bit inputs): */
 vfloat16m4_t __riscv_vfwmmacc_vv_f16m4_f8e5m2m1(vfloat16m4_t vd,
                                                   vfloat8e5m2m1_t vs1, vfloat8e5m2m1_t vs2, size_t vl);
-/* vqmmacc.vv FP32 accum / OFP8 E5M2 inputs (altfmt_A=B=1 for 8-bit inputs): */
-vfloat32m2_t __riscv_vqmmacc_vv_f32m2_f8e5m2m1(vfloat32m2_t vd,
+/* vfqmmacc.vv FP32 accum / OFP8 E5M2 inputs (altfmt_A=B=1 for 8-bit inputs): */
+vfloat32m2_t __riscv_vfqmmacc_vv_f32m2_f8e5m2m1(vfloat32m2_t vd,
                                                    vfloat8e5m2m1_t vs1, vfloat8e5m2m1_t vs2, size_t vl);
 --
 
@@ -2369,15 +2376,15 @@ Included in::
 |===
 
 <<<
-[#insns-vqmmacc_vv,reftext="Floating-Point Quad-Widening Matrix Multiply-Accumulate"]
-==== vqmmacc.vv
+[#insns-vfqmmacc_vv,reftext="Floating-Point Quad-Widening Matrix Multiply-Accumulate"]
+==== vfqmmacc.vv
 
 Synopsis::
 Floating-Point Quad-Widening Matrix Multiply-Accumulate
 
 Mnemonic::
-vqmmacc.vv _vd_, _vs1_, _vs2_ +
-vqmmacc.vv _vd_, _vs1_, _vs2_, v0.scale
+vfqmmacc.vv _vd_, _vs1_, _vs2_ +
+vfqmmacc.vv _vd_, _vs1_, _vs2_, v0.scale
 
 Encoding::
 [wavedrom, , svg]
@@ -2389,7 +2396,7 @@ Encoding::
     { bits: 5, name: 'vs1' },
     { bits: 5, name: 'vs2' },
     { bits: 1, name: 1 },
-    { bits: 6, name: 0x16, attr: ['vqmmacc.vv'] }
+    { bits: 6, name: 0x16, attr: ['vfqmmacc.vv'] }
 ]}
 ....
 
@@ -3612,24 +3619,24 @@ combinations are listed explicitly in the table below.
 | vfwmmacc | 64 | 32 | × | FP32  | × | FP32  | 0 | FP64  | Zvvfp32fp64mm       | —                 | —
 | vfwmmacc | 64 | 32 | × | FP32  | × | FP32  | 1 | —     | _reserved_     | —                 | —
 
-12+^e| *vqmmacc.vv (W=4)*
+12+^e| *vfqmmacc.vv (W=4)*
 
-| vqmmacc | 8  | 2 | × | —    | × | —     | × | —     | _reserved_      | —                 | —
-| vqmmacc | 16 | 4  | 0 | E2M1 | 0 | E2M1  | 0 | FP16  | Zvvofp4fp16mm    | Zvvxofp4fp16mm     | Zvvxnofp4fp16mm
-| vqmmacc | 16 | 4  | 0 | E2M1 | 0 | E2M1  | 1 | BF16  | Zvvofp4bf16mm | Zvvxofp4bf16mm  | Zvvxnofp4bf16mm
-| vqmmacc | 16 | 4  | 1 | —    | 1 | —     | × | —     | _reserved_     | —                | —
-| vqmmacc | 32 | 8  | 0 | E4M3 | 0 | E4M3  | 0 | FP32  | Zvvofp8fp32mm    | Zvvxofp8fp32mm     | Zvvxnofp8fp32mm
-| vqmmacc | 32 | 8  | 0 | E4M3 | 0 | E4M3  | 1 | —     | _reserved_     | —                 | —
-| vqmmacc | 32 | 8  | 1 | E5M2 | 1 | E5M2  | 0 | FP32  | Zvvofp8fp32mm    | Zvvxofp8fp32mm     | Zvvxnofp8fp32mm
-| vqmmacc | 32 | 8  | 1 | E5M2 | 1 | E5M2  | 1 | —     | _reserved_     | —                 | —
-| vqmmacc | 32 | 8  | 0 | E4M3 | 1 | E5M2  | 0 | FP32  | Zvvofp8fp32mm    | Zvvxofp8fp32mm     | Zvvxnofp8fp32mm
-| vqmmacc | 32 | 8  | 1 | E5M2 | 0 | E4M3  | 0 | FP32  | Zvvofp8fp32mm    | Zvvxofp8fp32mm     | Zvvxnofp8fp32mm
-| vqmmacc | 64 | 16 | 0 | FP16 | 0 | FP16  | 0 | FP64  | Zvvfp16fp64mm       | —                 | —
-| vqmmacc | 64 | 16 | 0 | FP16 | 0 | FP16  | 1 | —     | _reserved_     | —                 | —
-| vqmmacc | 64 | 16 | 1 | BF16 | 1 | BF16  | 0 | FP64  | Zvvbf16fp64mm    | —                 | —
-| vqmmacc | 64 | 16 | 1 | BF16 | 1 | BF16  | 1 | —     | _reserved_     | —                 | —
-| vqmmacc | 64 | 16 | 0 | FP16 | 1 | BF16  | 0 | FP64  | Zvvfp16fp64mm, Zvvbf16fp64mm | —         | —
-| vqmmacc | 64 | 16 | 1 | BF16 | 0 | FP16  | 0 | FP64  | Zvvfp16fp64mm, Zvvbf16fp64mm | —         | —
+| vfqmmacc | 8  | 2 | × | —    | × | —     | × | —     | _reserved_      | —                 | —
+| vfqmmacc | 16 | 4  | 0 | E2M1 | 0 | E2M1  | 0 | FP16  | Zvvofp4fp16mm    | Zvvxofp4fp16mm     | Zvvxnofp4fp16mm
+| vfqmmacc | 16 | 4  | 0 | E2M1 | 0 | E2M1  | 1 | BF16  | Zvvofp4bf16mm | Zvvxofp4bf16mm  | Zvvxnofp4bf16mm
+| vfqmmacc | 16 | 4  | 1 | —    | 1 | —     | × | —     | _reserved_     | —                | —
+| vfqmmacc | 32 | 8  | 0 | E4M3 | 0 | E4M3  | 0 | FP32  | Zvvofp8fp32mm    | Zvvxofp8fp32mm     | Zvvxnofp8fp32mm
+| vfqmmacc | 32 | 8  | 0 | E4M3 | 0 | E4M3  | 1 | —     | _reserved_     | —                 | —
+| vfqmmacc | 32 | 8  | 1 | E5M2 | 1 | E5M2  | 0 | FP32  | Zvvofp8fp32mm    | Zvvxofp8fp32mm     | Zvvxnofp8fp32mm
+| vfqmmacc | 32 | 8  | 1 | E5M2 | 1 | E5M2  | 1 | —     | _reserved_     | —                 | —
+| vfqmmacc | 32 | 8  | 0 | E4M3 | 1 | E5M2  | 0 | FP32  | Zvvofp8fp32mm    | Zvvxofp8fp32mm     | Zvvxnofp8fp32mm
+| vfqmmacc | 32 | 8  | 1 | E5M2 | 0 | E4M3  | 0 | FP32  | Zvvofp8fp32mm    | Zvvxofp8fp32mm     | Zvvxnofp8fp32mm
+| vfqmmacc | 64 | 16 | 0 | FP16 | 0 | FP16  | 0 | FP64  | Zvvfp16fp64mm       | —                 | —
+| vfqmmacc | 64 | 16 | 0 | FP16 | 0 | FP16  | 1 | —     | _reserved_     | —                 | —
+| vfqmmacc | 64 | 16 | 1 | BF16 | 1 | BF16  | 0 | FP64  | Zvvbf16fp64mm    | —                 | —
+| vfqmmacc | 64 | 16 | 1 | BF16 | 1 | BF16  | 1 | —     | _reserved_     | —                 | —
+| vfqmmacc | 64 | 16 | 0 | FP16 | 1 | BF16  | 0 | FP64  | Zvvfp16fp64mm, Zvvbf16fp64mm | —         | —
+| vfqmmacc | 64 | 16 | 1 | BF16 | 0 | FP16  | 0 | FP64  | Zvvfp16fp64mm, Zvvbf16fp64mm | —         | —
 
 12+^e| *vf8wmmacc.vv (W=8)*
 
