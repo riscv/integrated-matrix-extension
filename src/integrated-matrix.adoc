@@ -694,7 +694,7 @@ The rounding of partial sum `S` is optional in order to match established practi
 ====
 
 Two conforming implementations may produce floating-point results that differ for identical inputs.
-Bit-exact reproducibility of floating-point matrix multiply-accumulate results across different implementations is therefore guaranteed only when both implementations support the same (`SEW`, `W`, `lambda`) -> (`G`, `psm`, `rnd`) mapping.
+Bit-exact reproducibility of floating-point matrix multiply-accumulate results across different implementations is therefore guaranteed only when both implementations support the same (`SEW`, `W`, `lambda`) → (`G`, `psm`, `rnd`) mapping.
 
 Floating-point exception flags (inexact, overflow, underflow, invalid, etc.) are accumulated into `fflags`; the order in which individual exceptions are raised within a single instruction execution is implementation-defined.
 
