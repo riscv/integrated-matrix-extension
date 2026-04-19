@@ -646,7 +646,7 @@ The implementation-defined grouping factor `G` is applied separately within each
 * `G` is a power of two;
 * 1 ≤ `G` ≤ λ.
 
-* Within each group, the `G` sub-dot-products correspond to a dot product of two vectors with `G × W` elements. The result of that group dot product is reduced into a partial sum `S` according to an implementation-defined parameter `psm`.
+* Within each group, the `G` sub-dot-products jointly define a dot product of two vectors with `G × W` elements. This group dot product is reduced into a partial sum `S` according to an implementation-defined parameter `psm`.
 
 ** If `psm=0`, the partial sum `S` is formed using exact computation: the contributing products and sums are computed in sufficiently precise internal form, without rounding to the C accumulator format, until the next rounding step defined by this specification.
 
@@ -685,7 +685,7 @@ This significantly reduces the number of expensive full-precision additions.
 
 Portable software must not assume a particular mapping from (`SEW`, `W`, `lambda`) to (`G`, `psm`, `rnd`) unless that mapping has been disclosed by the implementation.
 
-The rounding of partial sum S is made optional in order to match established practices in industry and other RISC-V matrix extensions.
+The rounding of partial sum `S` is optional in order to match established practices in industry and other RISC-V matrix extensions.
 ====
 
 Two conforming implementations may produce floating-point results that differ for identical inputs.
