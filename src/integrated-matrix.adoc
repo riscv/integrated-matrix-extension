@@ -1873,6 +1873,7 @@ function scale_width_of(sfmt : scale_format) -> int =
 struct gemm_geom = {
   EEW_C   : int,   // accumulator element width (= SEW)
   EEW_A   : int,   // input element width (= SEW / W)
+  W       : int,   // widening / packing factor
   LMUL    : int,   // register-group multiplier
   lambda  : int,   // tile-layout parameter from vtype
   K_eff   : int,   // effective K dimension (= lambda * W * LMUL)
@@ -1910,7 +1911,80 @@ function decode_gemm_geometry(W : int, vl_divisor_is_lambda : bool) -> gemm_geom
   if unsigned(vl) % vl_div != 0 then return Illegal_Instruction();
   if MUL_C not in {1,2,4,8,16}  then return Illegal_Instruction();
 
-  struct { EEW_C, EEW_A, LMUL, lambda, K_eff, M, N, MUL_C, epr_A, epr_C }
+  struct { EEW_C, EEW_A, W, LMUL, lambda, K_eff, M, N, MUL_C, epr_A, epr_C }
+}
+
+// Partial-sum formation mode for floating-point group reduction.
+enum psm_mode = { PSM_EXACT, PSM_BNA }
+
+// Abstract internal floating-point representation used for the group
+// partial sum S before any rounding to the C accumulator format.
+type fp_internal
+
+// Exact internal product of two FP operands.
+// No rounding to the C accumulator format is performed here.
+val fp_mul_exact : forall ('n, 'm).
+  (bits('n), fp_fmt, bits('m), fp_fmt) -> fp_internal
+
+// Zero value of the abstract internal FP representation.
+val fp_internal_zero : unit -> fp_internal
+
+// Exact internal addition of two abstract internal FP values.
+val fp_internal_add : (fp_internal, fp_internal) -> fp_internal
+
+// Bulk-normalized accumulation step.
+// This may be implemented using RVBNA or any equivalent representation
+// producing the same numerical result.
+val fp_bna_add : (fp_internal, fp_internal) -> fp_internal
+
+// Group partial sum S for one output element.
+// The group begins at sub-dot-product index g0 and spans g_len consecutive
+// sub-dot-products. Each sub-dot-product contributes W scalar products, so
+// the full group corresponds to a dot product of two vectors with
+// g_len × W elements.
+//
+// The returned value S has not yet been rounded to the C accumulator format;
+// any such rounding is handled separately according to rnd.
+function fp_group_sum(i : int, j : int,
+                      g0 : int, g_len : int,
+                      g : gemm_geom,
+                      fmt_A : fp_fmt, fmt_B : fp_fmt,
+                      psm : psm_mode,
+                      vs1 : regidx, vs2 : regidx) -> fp_internal = {
+  let k_lo : int = g0 * g.W;
+  let k_hi : int = (g0 + g_len) * g.W - 1;
+
+  match psm {
+    PSM_EXACT => {
+      var S : fp_internal = fp_internal_zero();
+      foreach (k from k_lo to k_hi) {
+        let a_flat : int = mat_A_idx(i, k, g.K_eff, g.LMUL, g.lambda, g.epr_A);
+        let b_flat : int = mat_B_idx(k, j, g.K_eff, g.LMUL, g.lambda, g.epr_A);
+
+        let a_bits : bits(g.EEW_A) = read_single_element(g.EEW_A, a_flat, vs1);
+        let b_bits : bits(g.EEW_A) = read_single_element(g.EEW_A, b_flat, vs2);
+
+        let prod : fp_internal = fp_mul_exact(a_bits, fmt_A, b_bits, fmt_B);
+        S = fp_internal_add(S, prod)
+      };
+      S
+    },
+
+    PSM_BNA => {
+      var S : fp_internal = fp_internal_zero();
+      foreach (k from k_lo to k_hi) {
+        let a_flat : int = mat_A_idx(i, k, g.K_eff, g.LMUL, g.lambda, g.epr_A);
+        let b_flat : int = mat_B_idx(k, j, g.K_eff, g.LMUL, g.lambda, g.epr_A);
+
+        let a_bits : bits(g.EEW_A) = read_single_element(g.EEW_A, a_flat, vs1);
+        let b_bits : bits(g.EEW_A) = read_single_element(g.EEW_A, b_flat, vs2);
+
+        let prod : fp_internal = fp_mul_exact(a_bits, fmt_A, b_bits, fmt_B);
+        S = fp_bna_add(S, prod)
+      };
+      S
+    }
+  }
 }
 
 // Read and unpack paired block scales from v0 for block index s.
