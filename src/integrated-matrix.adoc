@@ -495,7 +495,7 @@ The floating-point format of each operand tile is controlled by fields in `vtype
 [#mixed-format-inputs]
 ==== Mixed-format inputs (`altfmt_A` ≠ `altfmt_B`)
 
-Mixed-format inputs (`altfmt_A` ? `altfmt_B`) are permitted for all
+Mixed-format inputs (`altfmt_A` ≠ `altfmt_B`) are permitted for all
 floating-point multiply-accumulate instructions.
 Each A×B product is defined by the exact mathematical product of the corresponding
 input values, and the floating-point result of the overall matrix multiply-accumulate
@@ -530,12 +530,12 @@ least that many significand bits.
 | IEEE binary64 | 53
 |===
 
-When p~A~ + p~B~ ? p~C~, the exact product is representable in `fmt_C`, so any later rounding of that value to the C accumulator format is exact.
-This holds for all mixed-format widening combinations ? for example, E4M3 × E5M2 ? FP16 (4 + 3 = 7 ? 11) and FP16 × BF16 ? FP32 (11 + 8 = 19 ? 24).
+When p~A~ + p~B~ <= p~C~, the exact product is representable in `fmt_C`, so any later rounding of that value to the C accumulator format is exact.
+This holds for all mixed-format widening combinations. For example, E4M3 × E5M2 -> FP16 (4 + 3 = 7 <= 11) and FP16 × BF16 -> FP32 (11 + 8 = 19 <= 24).
 
 An implementation need not use a standard IEEE 754 type for the internal
 product; any representation that captures the exact product (e.g., an
-integer significand?exponent pair) suffices, provided the overall matrix
+integer significand-exponent pair) suffices, provided the overall matrix
 multiply-accumulate result matches the semantics defined in <<arithmetic-considerations>>.
 ====
 
