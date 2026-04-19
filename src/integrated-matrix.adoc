@@ -73,7 +73,7 @@ The elements in the vector registers are contiguous in the λ direction, as depi
 <<ime-geometry-fig>>. Tile A and C elements are sorted in row-major order while tile B^T^
 elements are sorted in column-major order. This choice allows the implementation of the
 matrix tile multiplication as inner product (e.g., a systolic array) or outer product and
-simplifies the implementation of high-rank updates based outer products.
+simplifies the implementation of high-rank updates based on outer products.
 
 [#ime-tile-lmul-fig]
 .LMUL scaling of matrix tiles for LMUL=2 (left) and LMUL=4 (right).
@@ -384,7 +384,7 @@ tile load instructions always transfer data at SEW granularity, every loaded
 SEW-bit position contains W contiguous narrow elements that the
 multiply-accumulate instruction consumes as a sub-dot-product.
 
-[#ime-tile-widening-fig]]
+[#ime-tile-widening-fig]
 .Element distribution and tile geometry example for L=32, SEW wide elements (left), two SEW/2 wide elements packed per SEW (middle), and four SEW/4 wide elements per SEW (right). Packing/widening by W increases the effective K dimension of the tile by a factor of W.
 image::png/ime-tile-widening.png[align="center"]
 
@@ -461,7 +461,7 @@ Because modular addition is both associative and commutative, the final result i
 The `Zvvfmm` family of extensions provides floating-point matrix multiply-accumulate instructions, computing C ← C + A × B^T^.
 A, B, and C are matrix tiles held in the vector register file.
 
-The following table lists the integer matrix tile multiplication instructions. The arguments are:
+The following table lists the floating-point matrix tile multiplication instructions. The arguments are:
 
 * `vd`: Destination vector register group containing the C matrix tile.
 * `vs1`: Source vector register (group) containing the A matrix tile.
@@ -531,7 +531,7 @@ least that many significand bits.
 |===
 
 When p~A~ + p~B~ ≤ p~C~, the exact product is representable in `fmt_C`, so any later rounding of that value to the C accumulator format is exact.
-This holds for all mixed-format widening combinations. For example, E4M3 × E5M2 -> FP16 (4 + 3 = 7 ≤ 11) and FP16 × BF16 -> FP32 (11 + 8 = 19 ≤ 24).
+This holds for all mixed-format widening combinations. For example, E4M3 × E5M2 → FP16 (4 + 3 = 7 ≤ 11) and FP16 × BF16 → FP32 (11 + 8 = 19 ≤ 24).
 
 An implementation need not use a standard IEEE 754 type for the internal
 product; any representation that captures the exact product (e.g., an
