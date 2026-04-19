@@ -1987,6 +1987,42 @@ function fp_group_sum(i : int, j : int,
   }
 }
 
+// Treatment of the group partial sum S before final accumulation into C.
+enum rnd_mode = { RND_FRM, RND_RTO, RND_XCT }
+
+// Abstract implementation-defined parameters for FP group semantics.
+// These correspond to the disclosed mapping from (SEW, W, lambda)
+// to (G, psm, rnd).
+val get_fp_grouping : (int, int, int) -> int
+val get_fp_psm      : (int, int, int) -> psm_mode
+val get_fp_rnd      : (int, int, int) -> rnd_mode
+
+// Round an internal FP value to the C accumulator format using frm.
+val fp_round_to_frm : (fp_internal, int, fp_fmt, rounding_mode) -> bits
+
+// Round an internal FP value to the C accumulator format using round-to-odd.
+val fp_round_to_rto : (fp_internal, int, fp_fmt) -> bits
+
+// Add an internal FP value directly to an accumulator-format operand,
+// with the only rounding step being the final rounding according to frm.
+val fp_add_internal : (bits, fp_internal, int, fp_fmt, rounding_mode) -> bits
+
+// Apply the implementation-selected treatment of the group partial sum S
+// before the final accumulation into C.
+//
+// Returns Some(bits(...)) when S is rounded to the C accumulator format
+// before accumulation, and None() when S is retained in internal form
+// (rnd = RND_XCT).
+function round_group_sum(S : fp_internal,
+                         rnd : rnd_mode,
+                         EEW_C : int, fmt_C : fp_fmt,
+                         rm : rounding_mode) -> option(bits(EEW_C)) =
+  match rnd {
+    RND_FRM => Some(fp_round_to_frm(S, EEW_C, fmt_C, rm)),
+    RND_RTO => Some(fp_round_to_rto(S, EEW_C, fmt_C)),
+    RND_XCT => None()
+  }
+
 // Read and unpack paired block scales from v0 for block index s.
 // The scale format (e.g. E8M0) is determined by the input data type
 // and passed as scale_fmt.  The per-scale width (sw) and pair width
