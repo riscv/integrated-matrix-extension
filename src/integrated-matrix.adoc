@@ -683,15 +683,13 @@ In a *systolic-array* datapath, G is typically 1: each sub-dot-product is rounde
 In an *outer-product* datapath, G is typically on the order of λ (e.g. λ, λ÷2, λ÷4, or λ÷8): multiple sub-dot-products are accumulated at extended internal precision before a single rounding and C addition.
 This significantly reduces the number of expensive full-precision additions.
 
-Software must not depend on a particular value of G.
-
-It is expected an implementation will have to disclose its chosen value of G in order to be certified as compliant.
+Portable software must not assume a particular mapping from (`SEW`, `W`, `lambda`) to (`G`, `psm`, `rnd`) unless that mapping has been disclosed by the implementation.
 
 The rounding of partial sum S is made optional in order to match established practices in industry and other RISC-V matrix extensions.
 ====
 
 Two conforming implementations may produce floating-point results that differ for identical inputs.
-Bit-exact reproducibility of floating-point matrix multiply-accumulate results across different implementations is therefore guaranteed only when both implementation support the same (SEW, W, lambda) -> (G, psm) mapping.
+Bit-exact reproducibility of floating-point matrix multiply-accumulate results across different implementations is therefore guaranteed only when both implementations support the same (`SEW`, `W`, `lambda`) -> (`G`, `psm`, `rnd`) mapping.
 
 Floating-point exception flags (inexact, overflow, underflow, invalid, etc.) are accumulated into `fflags`; the order in which individual exceptions are raised within a single instruction execution is implementation-defined.
 
