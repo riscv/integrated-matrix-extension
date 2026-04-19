@@ -1777,6 +1777,10 @@ helper functions that are shared across all instructions in this chapter:
 
 [source,sail]
 --
+val is_pow2 : int -> bool
+
+val fp_internal_scale : (bits, fp_fmt, fp_internal) -> fp_internal
+
 // Decode a 3-bit lambda encoding to the actual lambda value.
 // Returns None() if the encoding is 0b000 (meaning "use vtype.lambda").
 function decode_vlambda(lam_enc : bits(3)) -> option(int) =
@@ -1938,10 +1942,10 @@ val fp_internal_add : (fp_internal, fp_internal) -> fp_internal
 val fp_bna_add : (fp_internal, fp_internal) -> fp_internal
 
 // Group partial sum S for one output element.
-// The group begins at sub-dot-product index g0 and spans g_len consecutive
-// sub-dot-products. Each sub-dot-product contributes W scalar products, so
-// the full group corresponds to a dot product of two vectors with
-// g_len × W elements.
+// The group lies within one LMUL=1 step, identified by step, and begins
+// at sub-dot-product index g0 within that step. Each sub-dot-product
+// contributes W scalar products, so the full group corresponds to a dot
+// product of two vectors with g_len × W elements.
 //
 // The returned value S has not yet been rounded to the C accumulator format;
 // any such rounding is handled separately according to rnd.
@@ -2060,6 +2064,8 @@ function read_block_scales(vm : bit, i : int, j : int, s : int,
   (blk_scale, fp_is_NaN(blk_scale, EEW_C, fmt_C))
 }
 
+// NOTE: Obsolete helper retained temporarily during the transition to the
+// group-based floating-point semantics. Not used by fp_gemm or fp_scaled_gemm.
 // Floating-point inner product over elements [k_lo, k_hi] with widening.
 // Returns the block accumulator in format fmt_C at width EEW_C.
 function fp_block_dot(i : int, j : int, k_lo : int, k_hi : int,
