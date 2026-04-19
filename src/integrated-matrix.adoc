@@ -503,18 +503,16 @@ combinations are listed in <<tbl-fp-encoding-map>>.
 
 ===== Mixed-format multiplication semantics
 
-Each A×B element product is computed per IEEE 754: the exact
-(infinite-precision) mathematical product is formed, then rounded once to
-the C accumulator format using the dynamic rounding mode from `frm`.
-This definition applies uniformly regardless of whether `fmt_A` equals
-`fmt_B`.
+Each A×B element product is defined by the exact mathematical product of the corresponding input values, regardless of whether `fmt_A` equals `fmt_B`.
+The floating-point result of the overall matrix multiply-accumulate operation, including any intermediate rounding, grouping, and partial-sum formation, is then determined according to <<arithmetic-considerations>>.
+In particular, the implementation-defined mapping from (`SEW`, `W`, `lambda`) to (`G`, `psm`, `rnd`) determines how exact products are grouped into partial sums and whether those partial sums are rounded before accumulation into C.
 
 [NOTE]
 ====
 The exact product of two floating-point values with p~A~ and p~B~
 significand bits has at most p~A~ + p~B~ significand bits.  An
 implementation may compute the product in any internal format with at
-least that many significand bits and then round once to `fmt_C`.
+least that many significand bits.
 
 .Significand widths (p) of supported formats
 [cols="4,1"]
@@ -531,16 +529,20 @@ least that many significand bits and then round once to `fmt_C`.
 | IEEE binary64 | 53
 |===
 
-When p~A~ + p~B~ ≤ p~C~, the product is exact in `fmt_C` and no rounding
-is needed.  This holds for all mixed-format widening combinations — for
-example, E4M3 × E5M2 → FP16 (4 + 3 = 7 ≤ 11) and FP16 × BF16 → FP32
-(11 + 8 = 19 ≤ 24).
+When p~A~ + p~B~ ? p~C~, the exact product is representable in `fmt_C`, so any later rounding of that value to the C accumulator format is exact.
+This holds for all mixed-format widening combinations ? for example, E4M3 × E5M2 ? FP16 (4 + 3 = 7 ? 11) and FP16 × BF16 ? FP32 (11 + 8 = 19 ? 24).
 
 An implementation need not use a standard IEEE 754 type for the internal
 product; any representation that captures the exact product (e.g., an
-integer significand–exponent pair) suffices, provided the final result
-equals the correctly-rounded value in `fmt_C`.
+integer significand?exponent pair) suffices, provided the overall matrix
+multiply-accumulate result matches the semantics defined in <<arithmetic-considerations>>.
 ====
+
+All floating-point matrix multiply-accumulate instructions, including mixed-format and microscaling variants, shall follow the normative rules in <<arithmetic-considerations>> for grouping, partial-sum formation, optional rounding of partial sums, and final accumulation into C.
+
+Final accumulation into the C accumulator format uses the dynamic rounding mode from `frm`.
+Any intermediate grouping, partial-sum formation, and optional rounding of partial sums follow <<arithmetic-considerations>>.
+Floating-point exception flags accumulate in `fflags`.
 
 The subextension requirements for mixed-format operation depend on the input
 element width:
@@ -1093,7 +1095,7 @@ Physically both transfers are identical: they move contiguous segments of length
 The tile load/store instructions interpret the memory layout according to the specified leading dimension, but the resulting data layout in the VR is the same regardless of whether the source/destination matrix is stored in row-major or column-major order.
 
 [#ime-load-store-geometry]
-.Loading a matrix tile from memory for LMUL=1. The matrix is layed out linearly in memory, the leading dimension LD specifies its row size (a) or column size (b). Element indices represent the offset of the elements in memory. Blue arrows indicate the data ordering in memory/VR.
+.Loading a matrix tile from memory for LMUL=1. The matrix is laid out linearly in memory, the leading dimension LD specifies its row size (a) or column size (b). Element indices represent the offset of the elements in memory. Blue arrows indicate the data ordering in memory/VR.
 image::png/ime-load-store-geometry.png[align="center"]
 
 If (rs2) = 0, then the leading dimension LD is set to the _natural dimension_ of λ × LMUL.
@@ -1109,7 +1111,7 @@ Efficient implementation of tile loads with `rs2 = x0` are essential to high-per
 When using a vector length lower than the maximum for the data width, the data is loaded such that it fills full rows in an A tile or columns in a B^T^ tile. The impact is sketched in <<ime-load-store-vl>>.
 
 [#ime-load-store-vl]
-.Examples of elemnent distribution for full (left) and reduced vector length matrix tile load / store operations.
+.Examples of element distribution for full (left) and reduced vector length matrix tile load / store operations.
 image::png/ime-load-store-vl.png[width="100%"]
 
 ==== Instructions
@@ -1765,7 +1767,7 @@ varies across implementations with different values of VLEN and λ, even for a f
 The type suffix in a long-form multiply-accumulate intrinsic name directly encodes MUL_C, whereas in an overloaded name that MUL_C is implicit.
 Either way, source code with IME intrinsics is tied to a specific combination of input/output types and value of MUL_C.
 
-Althought it is possible to write more general assembly code, it is common industry practice to favor coding with compiler intrinsics.
+Although it is possible to write more general assembly code, it is common industry practice to favor coding with compiler intrinsics.
 The recommended approach for writing portable code with IME intrinsics is to package multiple code paths in the same executable, each optimized for a specific value of MUL_C.
 Runtime selection of the appropriate code path is then performed based on the result of `vsetvl` and computations of MUL_C = VLEN / (SEW × λ²).
 
@@ -2424,7 +2426,9 @@ VL selects how many columns of B (and C) are updated; VL must be a multiple of K
 The floating-point format for A and B elements is selected independently by
 `altfmt_A` and `altfmt_B`, interpreted for input element width SEW÷8; the C
 format is selected by `altfmt`, interpreted for width SEW.
-All operations use the dynamic rounding mode from `frm`; floating-point exception flags accumulate in `fflags`.
+Final accumulation into the C accumulator format uses the dynamic rounding mode from `frm`.
+Any intermediate grouping, partial-sum formation, and optional rounding of partial sums follow <<arithmetic-considerations>>.
+Floating-point exception flags accumulate in `fflags`.
 +
 When `vm=0` (`v0.scale`), the register `v0` supplies paired block-scale
 factors for microscaling; the scale format is determined by the input data
@@ -2515,7 +2519,9 @@ VL selects how many columns of B (and C) are updated; VL must be a multiple of K
 The floating-point format for A and B elements is selected independently by
 `altfmt_A` and `altfmt_B` in `vtype` (see <<mixed-format-inputs>>);
 the C accumulator format is selected by `altfmt`.
-All operations use the dynamic rounding mode from `frm`; floating-point exception flags accumulate in `fflags`.
+Final accumulation into the C accumulator format uses the dynamic rounding mode from `frm`.
+Any intermediate grouping, partial-sum formation, and optional rounding of partial sums follow <<arithmetic-considerations>>.
+Floating-point exception flags accumulate in `fflags`.
 +
 Microscaling (`vm=0`) is not supported for non-widening floating-point
 multiply-accumulate; `vm=0` is _reserved_.
@@ -2553,10 +2559,6 @@ Included in::
 |Lifecycle state
 
 |Zvvfmm (<<#zvvfmm>>)
-|0.1
-|Draft
-
-|Zvvxofp8mm, Zvvxnofp8mm (<<#integrated-matrix-microscaling>>)
 |0.1
 |Draft
 |===
@@ -2600,7 +2602,9 @@ VL selects how many columns of B (and C) are updated; VL must be a multiple of K
 The floating-point format for A and B elements is selected independently by
 `altfmt_A` and `altfmt_B`, interpreted for input element width SEW÷4; the C
 format is selected by `altfmt`, interpreted for width SEW.
-All operations use the dynamic rounding mode from `frm`; floating-point exception flags accumulate in `fflags`.
+Final accumulation into the C accumulator format uses the dynamic rounding mode from `frm`.
+Any intermediate grouping, partial-sum formation, and optional rounding of partial sums follow <<arithmetic-considerations>>.
+Floating-point exception flags accumulate in `fflags`.
 +
 When `vm=0` (`v0.scale`), the register `v0` supplies paired block-scale
 factors for microscaling; the scale format is determined by the input data
@@ -2696,7 +2700,9 @@ VL selects how many columns of B (and C) are updated; VL must be a multiple of K
 The floating-point format for A and B elements is selected independently by
 `altfmt_A` and `altfmt_B`, interpreted for input element width SEW÷2; the C
 format is selected by `altfmt`, interpreted for width SEW.
-All operations use the dynamic rounding mode from `frm`; floating-point exception flags accumulate in `fflags`.
+Final accumulation into the C accumulator format uses the dynamic rounding mode from `frm`.
+Any intermediate grouping, partial-sum formation, and optional rounding of partial sums follow <<arithmetic-considerations>>.
+Floating-point exception flags accumulate in `fflags`.
 +
 When `vm=0` (`v0.scale`), the register `v0` supplies paired block-scale
 factors for microscaling; the scale format is determined by the input data
@@ -3689,8 +3695,8 @@ Each microscaling subextension enables the `vm=0` / `v0.scale` encoding for
 a specific (input format, accumulator format, block size) combination.
 A floating-point microscaling subextension implies its corresponding base
 subextension: for example, Zvvxofp4fp16mm implies Zvvofp4fp16mm, which provides
-the underlying OFP4→FP16 instruction support.  Only narrow input formats
-(OFP4, OFP8) define FP microscaling variants.
+the underlying OFP4→FP16 instruction support.  
+Only widening floating-point multiply-accumulate instructions define FP microscaling variants, and only for narrow input formats (OFP4, OFP8).
 The integer MX subextensions (`Zvvxi*mm`, `Zvvxni*mm`) do not imply a
 base subextension: `vfwimmacc.vv` and `vfqimmacc.vv` have no non-MX
 FP-accumulate form (the `vm=1` encoding of those opcodes is the existing
@@ -3762,26 +3768,26 @@ combinations are listed explicitly in the table below.
 
 12+^e| *vfmmacc.vv (W=1)*
 
-| vfmmacc  | 8  | 8  | 0 | E4M3  | 0 | E4M3  | 0 | E4M3  | Zvvofp8mm     | Zvvxofp8mm      | Zvvxnofp8mm
-| vfmmacc  | 8  | 8  | 0 | E4M3  | 0 | E4M3  | 1 | E5M2  | Zvvofp8mm     | Zvvxofp8mm      | Zvvxnofp8mm
-| vfmmacc  | 8  | 8  | 1 | E5M2  | 1 | E5M2  | 0 | E4M3  | Zvvofp8mm     | Zvvxofp8mm      | Zvvxnofp8mm
-| vfmmacc  | 8  | 8  | 1 | E5M2  | 1 | E5M2  | 1 | E5M2  | Zvvofp8mm     | Zvvxofp8mm      | Zvvxnofp8mm
-| vfmmacc  | 8  | 8  | 0 | E4M3  | 1 | E5M2  | 0 | E4M3  | Zvvofp8mm     | Zvvxofp8mm      | Zvvxnofp8mm
-| vfmmacc  | 8  | 8  | 0 | E4M3  | 1 | E5M2  | 1 | E5M2  | Zvvofp8mm     | Zvvxofp8mm      | Zvvxnofp8mm
-| vfmmacc  | 8  | 8  | 1 | E5M2  | 0 | E4M3  | 0 | E4M3  | Zvvofp8mm     | Zvvxofp8mm      | Zvvxnofp8mm
-| vfmmacc  | 8  | 8  | 1 | E5M2  | 0 | E4M3  | 1 | E5M2  | Zvvofp8mm     | Zvvxofp8mm      | Zvvxnofp8mm
-| vfmmacc  | 16 | 16 | 0 | FP16  | 0 | FP16  | 0 | FP16  | Zvvfp16mm        | —                 | —
-| vfmmacc  | 16 | 16 | 0 | FP16  | 0 | FP16  | 1 | BF16  | _reserved_     | —                 | —
-| vfmmacc  | 16 | 16 | 1 | BF16  | 1 | BF16  | 0 | FP16  | _reserved_     | —                 | —
-| vfmmacc  | 16 | 16 | 1 | BF16  | 1 | BF16  | 1 | BF16  | Zvvbf16mm     | —                 | —
-| vfmmacc  | 16 | 16 | 0 | FP16  | 1 | BF16  | 0 | FP16  | Zvvfp16mm, Zvvbf16mm | —            | —
-| vfmmacc  | 16 | 16 | 0 | FP16  | 1 | BF16  | 1 | BF16  | Zvvfp16mm, Zvvbf16mm | —            | —
-| vfmmacc  | 16 | 16 | 1 | BF16  | 0 | FP16  | 0 | FP16  | Zvvfp16mm, Zvvbf16mm | —            | —
-| vfmmacc  | 16 | 16 | 1 | BF16  | 0 | FP16  | 1 | BF16  | Zvvfp16mm, Zvvbf16mm | —            | —
-| vfmmacc  | 32 | 32 | × | FP32  | × | FP32  | 0 | FP32  | Zvvfp32mm        | —                 | —
-| vfmmacc  | 32 | 32 | × | FP32  | × | FP32  | 1 | —     | _reserved_     | —                 | —
-| vfmmacc  | 64 | 64 | × | FP64  | × | FP64  | 0 | FP64  | Zvvfp64mm        | —                 | —
-| vfmmacc  | 64 | 64 | × | FP64  | × | FP64  | 1 | —     | _reserved_     | —                 | —
+| vfmmacc  | 8  | 8  | 0 | E4M3  | 0 | E4M3  | 0 | E4M3  | Zvvofp8mm            | - | -
+| vfmmacc  | 8  | 8  | 0 | E4M3  | 0 | E4M3  | 1 | E5M2  | Zvvofp8mm            | - | -
+| vfmmacc  | 8  | 8  | 1 | E5M2  | 1 | E5M2  | 0 | E4M3  | Zvvofp8mm            | - | -
+| vfmmacc  | 8  | 8  | 1 | E5M2  | 1 | E5M2  | 1 | E5M2  | Zvvofp8mm            | - | -
+| vfmmacc  | 8  | 8  | 0 | E4M3  | 1 | E5M2  | 0 | E4M3  | Zvvofp8mm            | - | -
+| vfmmacc  | 8  | 8  | 0 | E4M3  | 1 | E5M2  | 1 | E5M2  | Zvvofp8mm            | - | -
+| vfmmacc  | 8  | 8  | 1 | E5M2  | 0 | E4M3  | 0 | E4M3  | Zvvofp8mm            | - | -
+| vfmmacc  | 8  | 8  | 1 | E5M2  | 0 | E4M3  | 1 | E5M2  | Zvvofp8mm            | - | -
+| vfmmacc  | 16 | 16 | 0 | FP16  | 0 | FP16  | 0 | FP16  | Zvvfp16mm            | - | -
+| vfmmacc  | 16 | 16 | 0 | FP16  | 0 | FP16  | 1 | BF16  | _reserved_           | - | -
+| vfmmacc  | 16 | 16 | 1 | BF16  | 1 | BF16  | 0 | FP16  | _reserved_           | - | -
+| vfmmacc  | 16 | 16 | 1 | BF16  | 1 | BF16  | 1 | BF16  | Zvvbf16mm            | - | -
+| vfmmacc  | 16 | 16 | 0 | FP16  | 1 | BF16  | 0 | FP16  | Zvvfp16mm, Zvvbf16mm | - | -
+| vfmmacc  | 16 | 16 | 0 | FP16  | 1 | BF16  | 1 | BF16  | Zvvfp16mm, Zvvbf16mm | - | -
+| vfmmacc  | 16 | 16 | 1 | BF16  | 0 | FP16  | 0 | FP16  | Zvvfp16mm, Zvvbf16mm | - | -
+| vfmmacc  | 16 | 16 | 1 | BF16  | 0 | FP16  | 1 | BF16  | Zvvfp16mm, Zvvbf16mm | - | -
+| vfmmacc  | 32 | 32 | × | FP32  | × | FP32  | 0 | FP32  | Zvvfp32mm            | - | -
+| vfmmacc  | 32 | 32 | × | FP32  | × | FP32  | 1 | -     | _reserved_           | - | -
+| vfmmacc  | 64 | 64 | × | FP64  | × | FP64  | 0 | FP64  | Zvvfp64mm            | - | -
+| vfmmacc  | 64 | 64 | × | FP64  | × | FP64  | 1 | -     | _reserved_           | - | -
 
 12+^e| *vfwmmacc.vv (W=2)*
 
