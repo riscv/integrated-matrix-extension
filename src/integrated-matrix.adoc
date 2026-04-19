@@ -72,7 +72,7 @@ The accumulator register group has cardinality MUL_C = VLEN ÷ (SEW × λ²), in
 The elements in the vector registers are contiguous in the λ direction, as depicted in
 <<ime-geometry-fig>>. Tile A and C elements are sorted in row-major order while tile B^T^
 elements are sorted in column-major order. This choice allows the implementation of the
-matrix tile multiplication as inner product (eg. a systolic array) or outer product and
+matrix tile multiplication as inner product (e.g., a systolic array) or outer product and
 simplifies the implementation of high-rank updates based outer products.
 
 [#ime-tile-lmul-fig]
@@ -530,8 +530,8 @@ least that many significand bits.
 | IEEE binary64 | 53
 |===
 
-When p~A~ + p~B~ <= p~C~, the exact product is representable in `fmt_C`, so any later rounding of that value to the C accumulator format is exact.
-This holds for all mixed-format widening combinations. For example, E4M3 × E5M2 -> FP16 (4 + 3 = 7 <= 11) and FP16 × BF16 -> FP32 (11 + 8 = 19 <= 24).
+When p~A~ + p~B~ ≤ p~C~, the exact product is representable in `fmt_C`, so any later rounding of that value to the C accumulator format is exact.
+This holds for all mixed-format widening combinations. For example, E4M3 × E5M2 -> FP16 (4 + 3 = 7 ≤ 11) and FP16 × BF16 -> FP32 (11 + 8 = 19 ≤ 24).
 
 An implementation need not use a standard IEEE 754 type for the internal
 product; any representation that captures the exact product (e.g., an
@@ -1245,7 +1245,7 @@ For each element index `i` in the body `[vstart, VL)` where the mask is enabled:
 
 [NOTE]
 ====
-Transposing loads and stores should be performed with SEW set to the width of the actual data that is being loaded and transposed. Sub-byte elements (eg. OFP4) cannot be transposed directly.
+Transposing loads and stores should be performed with SEW set to the width of the actual data that is being loaded and transposed. Sub-byte elements (e.g., OFP4) cannot be transposed directly.
 ====
 
 <<<
@@ -3771,26 +3771,26 @@ combinations are listed explicitly in the table below.
 
 12+^e| *vfmmacc.vv (W=1)*
 
-| vfmmacc  | 8  | 8  | 0 | E4M3  | 0 | E4M3  | 0 | E4M3  | Zvvofp8mm            | - | -
-| vfmmacc  | 8  | 8  | 0 | E4M3  | 0 | E4M3  | 1 | E5M2  | Zvvofp8mm            | - | -
-| vfmmacc  | 8  | 8  | 1 | E5M2  | 1 | E5M2  | 0 | E4M3  | Zvvofp8mm            | - | -
-| vfmmacc  | 8  | 8  | 1 | E5M2  | 1 | E5M2  | 1 | E5M2  | Zvvofp8mm            | - | -
-| vfmmacc  | 8  | 8  | 0 | E4M3  | 1 | E5M2  | 0 | E4M3  | Zvvofp8mm            | - | -
-| vfmmacc  | 8  | 8  | 0 | E4M3  | 1 | E5M2  | 1 | E5M2  | Zvvofp8mm            | - | -
-| vfmmacc  | 8  | 8  | 1 | E5M2  | 0 | E4M3  | 0 | E4M3  | Zvvofp8mm            | - | -
-| vfmmacc  | 8  | 8  | 1 | E5M2  | 0 | E4M3  | 1 | E5M2  | Zvvofp8mm            | - | -
-| vfmmacc  | 16 | 16 | 0 | FP16  | 0 | FP16  | 0 | FP16  | Zvvfp16mm            | - | -
-| vfmmacc  | 16 | 16 | 0 | FP16  | 0 | FP16  | 1 | BF16  | _reserved_           | - | -
-| vfmmacc  | 16 | 16 | 1 | BF16  | 1 | BF16  | 0 | FP16  | _reserved_           | - | -
-| vfmmacc  | 16 | 16 | 1 | BF16  | 1 | BF16  | 1 | BF16  | Zvvbf16mm            | - | -
-| vfmmacc  | 16 | 16 | 0 | FP16  | 1 | BF16  | 0 | FP16  | Zvvfp16mm, Zvvbf16mm | - | -
-| vfmmacc  | 16 | 16 | 0 | FP16  | 1 | BF16  | 1 | BF16  | Zvvfp16mm, Zvvbf16mm | - | -
-| vfmmacc  | 16 | 16 | 1 | BF16  | 0 | FP16  | 0 | FP16  | Zvvfp16mm, Zvvbf16mm | - | -
-| vfmmacc  | 16 | 16 | 1 | BF16  | 0 | FP16  | 1 | BF16  | Zvvfp16mm, Zvvbf16mm | - | -
-| vfmmacc  | 32 | 32 | × | FP32  | × | FP32  | 0 | FP32  | Zvvfp32mm            | - | -
-| vfmmacc  | 32 | 32 | × | FP32  | × | FP32  | 1 | -     | _reserved_           | - | -
-| vfmmacc  | 64 | 64 | × | FP64  | × | FP64  | 0 | FP64  | Zvvfp64mm            | - | -
-| vfmmacc  | 64 | 64 | × | FP64  | × | FP64  | 1 | -     | _reserved_           | - | -
+| vfmmacc  | 8  | 8  | 0 | E4M3  | 0 | E4M3  | 0 | E4M3  | Zvvofp8mm            | — | —
+| vfmmacc  | 8  | 8  | 0 | E4M3  | 0 | E4M3  | 1 | E5M2  | Zvvofp8mm            | — | —
+| vfmmacc  | 8  | 8  | 1 | E5M2  | 1 | E5M2  | 0 | E4M3  | Zvvofp8mm            | — | —
+| vfmmacc  | 8  | 8  | 1 | E5M2  | 1 | E5M2  | 1 | E5M2  | Zvvofp8mm            | — | —
+| vfmmacc  | 8  | 8  | 0 | E4M3  | 1 | E5M2  | 0 | E4M3  | Zvvofp8mm            | — | —
+| vfmmacc  | 8  | 8  | 0 | E4M3  | 1 | E5M2  | 1 | E5M2  | Zvvofp8mm            | — | —
+| vfmmacc  | 8  | 8  | 1 | E5M2  | 0 | E4M3  | 0 | E4M3  | Zvvofp8mm            | — | —
+| vfmmacc  | 8  | 8  | 1 | E5M2  | 0 | E4M3  | 1 | E5M2  | Zvvofp8mm            | — | —
+| vfmmacc  | 16 | 16 | 0 | FP16  | 0 | FP16  | 0 | FP16  | Zvvfp16mm            | — | —
+| vfmmacc  | 16 | 16 | 0 | FP16  | 0 | FP16  | 1 | BF16  | _reserved_           | — | —
+| vfmmacc  | 16 | 16 | 1 | BF16  | 1 | BF16  | 0 | FP16  | _reserved_           | — | —
+| vfmmacc  | 16 | 16 | 1 | BF16  | 1 | BF16  | 1 | BF16  | Zvvbf16mm            | — | —
+| vfmmacc  | 16 | 16 | 0 | FP16  | 1 | BF16  | 0 | FP16  | Zvvfp16mm, Zvvbf16mm | — | —
+| vfmmacc  | 16 | 16 | 0 | FP16  | 1 | BF16  | 1 | BF16  | Zvvfp16mm, Zvvbf16mm | — | —
+| vfmmacc  | 16 | 16 | 1 | BF16  | 0 | FP16  | 0 | FP16  | Zvvfp16mm, Zvvbf16mm | — | —
+| vfmmacc  | 16 | 16 | 1 | BF16  | 0 | FP16  | 1 | BF16  | Zvvfp16mm, Zvvbf16mm | — | —
+| vfmmacc  | 32 | 32 | × | FP32  | × | FP32  | 0 | FP32  | Zvvfp32mm            | — | —
+| vfmmacc  | 32 | 32 | × | FP32  | × | FP32  | 1 | —     | _reserved_           | — | —
+| vfmmacc  | 64 | 64 | × | FP64  | × | FP64  | 0 | FP64  | Zvvfp64mm            | — | —
+| vfmmacc  | 64 | 64 | × | FP64  | × | FP64  | 1 | —     | _reserved_           | — | —
 
 12+^e| *vfwmmacc.vv (W=2)*
 
