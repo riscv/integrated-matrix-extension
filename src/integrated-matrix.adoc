@@ -100,12 +100,12 @@ The type tokens are:
 
 * Integer: `i4`, `i8`, `i16`, `i32`, `i64`
 * Floating-point: `ofp4`, `ofp8`, `fp16`, `bf16`, `fp32`, `fp64`
-* Microscaling (E8M0-scaled, block size 32): prefix `x` — e.g. `xofp8`, `xi8`
-* Microscaling (E8M0-scaled, block size 16): prefix `xn` — e.g. `xnofp8`, `xni8`
+* Microscaling (E8M0-scaled, block size 32): prefix `x` — e.g., `xofp8`, `xi8`
+* Microscaling (E8M0-scaled, block size 16): prefix `xn` — e.g., `xnofp8`, `xni8`
 
 Examples: `Zvvi8i32mm` (Int8 inputs, Int32 accumulator), `Zvvfp16fp32mm` (FP16 inputs,
 FP32 accumulator), `Zvvxofp8fp16mm` (MXFP8 inputs with BS=32, FP16 accumulator).
-When the accumulator type matches the input type (e.g. `Zvvi16mm`, `Zvvfp32mm`),
+When the accumulator type matches the input type (e.g., `Zvvi16mm`, `Zvvfp32mm`),
 the output token is dropped.
 
 ==== Computational subextensions
@@ -683,9 +683,9 @@ The number of rounding operations per output element of C is (λ × `LMUL`) ÷ `
 A Zvvm implementation can produce the exact same results as the analogous Zvtm implementation when operating on 16- and 8-bit inputs by setting `psm=1`, `rnd=rto`, and choosing a suitable architectural value of `G`: `G=2` for 16-bit inputs with 32-bit outputs, and `G=1` for 8-bit inputs with 32-bit outputs.
 For input element widths of 32 bits or greater, compatibility with the analogous Zvtm instruction is obtained with `G=1`, `psm=0`, and `rnd=frm` so that each group contains a single product and the partial sum `S` is that product rounded according to `frm`.
 
-In a *systolic-array* datapath, G is typically 1: each sub-dot-product is rounded and added to C immediately, yielding λ × LMUL rounding additions per output element.
+In a *systolic-array* datapath, `G` is typically 1: each sub-dot-product is rounded and added to C immediately, yielding λ × LMUL rounding additions per output element.
 
-In an *outer-product* datapath, G is typically on the order of λ (e.g. λ, λ÷2, λ÷4, or λ÷8): multiple sub-dot-products are accumulated at extended internal precision before a single rounding and C addition.
+In an *outer-product* datapath, `G` is typically on the order of λ (e.g., λ, λ÷2, λ÷4, or λ÷8): multiple sub-dot-products are accumulated at extended internal precision before a single rounding and C addition.
 This significantly reduces the number of expensive full-precision additions.
 
 Portable software must not assume a particular mapping from (`SEW`, `W`, `lambda`) to (`G`, `psm`, `rnd`) unless that mapping has been disclosed by the implementation.
@@ -771,7 +771,7 @@ Because E8M0 values are exact powers of two, scale application is
 equivalent to exponent addition and introduces no rounding error.
 
 When a non-NaN E8M0 value represents a power-of-two that overflows the
-accumulator FP format (e.g. 2^128^ cannot be represented in FP16 which
+accumulator FP format (e.g., 2^128^ cannot be represented in FP16 which
 has a maximum finite exponent of 2^15^), the converted scale value is
 +∞.  The subsequent block-scale multiply follows IEEE 754 rules: +∞
 multiplied by a non-zero finite value yields ±∞ (propagating into the
@@ -1821,7 +1821,7 @@ function mat_C_idx(i : int, j : int, M : int,
 
 // fp_format_of(EEW : int, alt : bit) -> fp_fmt
 //   Decode (element width in bits, altfmt flag) to the concrete FP format as specified
-//   by the altfmt encoding tables in the vtype section (e.g. EEW=8, alt=0 → E4M3 (OFP8)).
+//   by the altfmt encoding tables in the vtype section (e.g., EEW=8, alt=0 → E4M3 (OFP8)).
 
 // fp_mul_to(a     : bits(EEW_A), fmt_A : fp_fmt,
 //           b     : bits(EEW_A), fmt_B : fp_fmt,
@@ -2034,7 +2034,7 @@ function round_group_sum(S : fp_internal,
   }
 
 // Read and unpack paired block scales from v0 for block index s.
-// The scale format (e.g. E8M0) is determined by the input data type
+// The scale format (e.g., E8M0) is determined by the input data type
 // and passed as scale_fmt.  The per-scale width (sw) and pair width
 // (pw = 2 × sw) are derived from the scale format.
 // When vm=1 (no microscaling), returns (1.0, false).
