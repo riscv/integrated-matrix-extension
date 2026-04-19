@@ -472,10 +472,10 @@ The following table lists the integer matrix tile multiplication instructions. T
 |===
 | Mnemonic | W | A/B element width | C element width | Remark
 
-| `vfmmacc.vv vd, vs1, vs2[, v0.scale]`    | 1 | SEW     | SEW | floating point and MX scaled A/B tiles
-| `vfwmmacc.vv vd, vs1, vs2[, v0.scale]`  | 2 | SEW/2   | SEW | floating point and MX scaled A/B tiles
-| `vfqmmacc.vv vd, vs1, vs2[, v0.scale]` | 4 | SEW/4   | SEW | floating point and MX scaled A/B tiles
-| `vf8wmmacc.vv vd, vs1, vs2[, v0.scale]` | 8 | SEW/8   | SEW | floating point and MX scaled A/B tiles
+| `vfmmacc.vv vd, vs1, vs2`              | 1 | SEW     | SEW | floating-point A/B tiles only
+| `vfwmmacc.vv vd, vs1, vs2[, v0.scale]` | 2 | SEW/2   | SEW | floating-point and MX-scaled A/B tiles
+| `vfqmmacc.vv vd, vs1, vs2[, v0.scale]` | 4 | SEW/4   | SEW | floating-point and MX-scaled A/B tiles
+| `vf8wmmacc.vv vd, vs1, vs2[, v0.scale]`| 8 | SEW/8   | SEW | floating-point and MX-scaled A/B tiles
 | `vfwimmacc.vv vd, vs1, vs2, v0.scale`   | 2 | SEW/2   | SEW | only MX-scaled integer A/B tiles
 | `vfqimmacc.vv vd, vs1, vs2, v0.scale`  | 4 | SEW/4   | SEW | only MX-scaled integer A/B tiles
 | `vf8wimmacc.vv vd, vs1, vs2, v0.scale`  | 8 | SEW/8   | SEW | only MX-scaled integer A/B tiles
@@ -495,11 +495,12 @@ The floating-point format of each operand tile is controlled by fields in `vtype
 [#mixed-format-inputs]
 ==== Mixed-format inputs (`altfmt_A` ≠ `altfmt_B`)
 
-Mixed-format inputs (`altfmt_A` ≠ `altfmt_B`) are permitted for all
-floating-point multiply-accumulate instructions.  Each A×B product is
-computed in sufficient internal precision and rounded to the C accumulator
-format; the two input formats need not match.  The valid mixed-format
-combinations are listed in <<tbl-fp-encoding-map>>.
+Mixed-format inputs (`altfmt_A` ? `altfmt_B`) are permitted for all
+floating-point multiply-accumulate instructions.
+Each A×B product is defined by the exact mathematical product of the corresponding
+input values, and the floating-point result of the overall matrix multiply-accumulate
+operation is determined according to <<arithmetic-considerations>>.
+The valid mixed-format combinations are listed in <<tbl-fp-encoding-map>>.
 
 ===== Mixed-format multiplication semantics
 
@@ -598,7 +599,9 @@ For IEEE binary32 and IEEE binary64 inputs, `altfmt_A` and `altfmt_B` are
 ignored (there is only one format per width), so mixed-format operation does
 not apply.
 
-All multiply and add operations use the dynamic rounding mode from `frm`; floating-point exception flags are accumulated into `fflags`.
+Final accumulation into the C accumulator format uses the dynamic rounding mode from `frm`.
+Any intermediate grouping, partial-sum formation, and optional rounding of partial sums follow <<arithmetic-considerations>>.
+Floating-point exception flags are accumulated into `fflags`.
 
 The K-dimension, tile-dimension formulae, MUL_C, and instruction-to-widening-factor mapping are the same as for the integer family (see <<zvvmm>>); the floating-point mnemonics are `vfmmacc.vv` (W=1), `vfwmmacc.vv` (W=2), and `vfqmmacc.vv` (W=4).
 
