@@ -1842,11 +1842,11 @@ function mat_B_idx(k : int, j : int, K_eff : int,
                    LMUL : int, lambda : int, epr : int) -> int =
   tile_reg_idx(j * K_eff + k, LMUL, lambda, epr)
 
-// C[i, j] in vd: C is stored column-major.
+// C[i, j] in vd: C is stored row-major.
 // MUL_C = VLEN / (SEW * lambda^2) is the number of registers in the C group.
 function mat_C_idx(i : int, j : int, M : int,
                    MUL_C : int, lambda : int, epr : int) -> int =
-  tile_reg_idx(j * M + i, MUL_C, lambda, epr)
+  tile_reg_idx(i * M + j, MUL_C, lambda, epr)
 
 // fp_format_of(EEW : int, alt : bit) -> fp_fmt
 //   Decode (element width in bits, altfmt flag) to the concrete FP format as specified
