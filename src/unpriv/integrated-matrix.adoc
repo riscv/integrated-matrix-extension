@@ -1324,8 +1324,8 @@ This permits hardware implementations (including outer-product engines and regis
 | A, column-major   | `vmttl.v` (transposing)      | `vmtts.v`
 | B, column-major   | `vmtl.v` (order-preserving)  | —
 | B, row-major      | `vmttl.v` (transposing)      | —
-| C, column-major   | `vmtl.v` (if loaded from memory) | `vmts.v`
-| C, row-major      | `vmttl.v` (transposing)      | `vmtts.v`
+| C, row-major      | `vmtl.v` (if loaded from memory) | `vmts.v`
+| C, column-major   | `vmttl.v` (transposing)      | `vmtts.v`
 |===
 
 ==== Example: single-precision floating-point GEMM
@@ -1334,11 +1334,11 @@ The following pseudocode implements C ← C + A × B for single-precision
 floating-point data, tiled over all three matrix dimensions.
 The configuration uses SEW=32, LMUL=1, and λ=4, giving K_eff = 4 and
 M_tile = VLEN/128.
-A is stored row-major; B and C are stored column-major.
+A and C are stored row-major; B is stored column-major.
 
 [source,c]
 --
-// C (M×N, col-major, stride ldc) += A (M×K, row-major, stride lda)
+// C (M×N, row-major, stride ldc) += A (M×K, row-major, stride lda)
 //                                 × B (K×N, col-major, stride ldb)
 // Pre-condition: vtype configured for SEW=32, LMUL=1, lambda=4
 // Pre-condition: K is a multiple of K_eff (= lambda × LMUL = 4)
@@ -1373,9 +1373,9 @@ for (j = 0; j < N; j += N_tile) {
             vfmmacc.vv v8, v0, v4;            // C[i..][j..] += A_tile × B_tile
         }
 
-        // Store C[i:i+M_tile][j:j+N_tile]: M_tile rows, N_tile cols, col-major.
+        // Store C[i:i+M_tile][j:j+N_tile]: M_tile rows, N_tile cols, row-major.
         vsetvl(vl);
-        vmts.v v8, &C[j*ldc + i], ldc;        // LD = ldc (C col stride = M_total)
+        vmts.v v8, &C[i*ldc + j], ldc;        // LD = ldc (C row stride = N_total)
     }
 }
 --
@@ -1843,11 +1843,11 @@ function mat_B_idx(k : int, j : int, K_eff : int,
                    LMUL : int, lambda : int, epr : int) -> int =
   tile_reg_idx(j * K_eff + k, LMUL, lambda, epr)
 
-// C[i, j] in vd: C is stored row-major.
+// C[i, j] in vd: C is stored row-major; the row stride is N (= columns of C).
 // MUL_C = VLEN / (SEW * lambda^2) is the number of registers in the C group.
-function mat_C_idx(i : int, j : int, M : int,
+function mat_C_idx(i : int, j : int, N : int,
                    MUL_C : int, lambda : int, epr : int) -> int =
-  tile_reg_idx(i * M + j, MUL_C, lambda, epr)
+  tile_reg_idx(i * N + j, MUL_C, lambda, epr)
 
 // fp_format_of(EEW : int, alt : bit) -> fp_fmt
 //   Decode (element width in bits, altfmt flag) to the concrete FP format as specified
@@ -2165,7 +2165,7 @@ function int_gemm(g : gemm_geom, signed_A : bool, signed_B : bool,
                   vs1 : regidx, vs2 : regidx, vd : regidx) -> unit = {
   foreach (j from 0 to (g.N - 1)) {
     foreach (i from 0 to (g.M - 1)) {
-      let c_flat : int = mat_C_idx(i, j, g.M, g.MUL_C, g.lambda, g.epr_C);
+      let c_flat : int = mat_C_idx(i, j, g.N, g.MUL_C, g.lambda, g.epr_C);
       let c_bits : bits(g.EEW_C) = read_single_element(g.EEW_C, c_flat, vd);
       var acc : int = signed(c_bits);
       acc = acc + int_block_dot(i, j, 0, g.K_eff - 1, g,
@@ -2189,7 +2189,7 @@ function fp_gemm(g : gemm_geom,
 
   foreach (j from 0 to (g.N - 1)) {
     foreach (i from 0 to (g.M - 1)) {
-      let c_flat : int        = mat_C_idx(i, j, g.M, g.MUL_C, g.lambda, g.epr_C);
+      let c_flat : int        = mat_C_idx(i, j, g.N, g.MUL_C, g.lambda, g.epr_C);
       var acc : bits(g.EEW_C) = read_single_element(g.EEW_C, c_flat, vd);
 
       // The semantics for LMUL > 1 are defined as repeated application
@@ -2239,7 +2239,7 @@ function fp_scaled_gemm(g : gemm_geom,
 
   foreach (j from 0 to (g.N - 1)) {
     foreach (i from 0 to (g.M - 1)) {
-      let c_flat : int        = mat_C_idx(i, j, g.M, g.MUL_C, g.lambda, g.epr_C);
+      let c_flat : int        = mat_C_idx(i, j, g.N, g.MUL_C, g.lambda, g.epr_C);
       var acc : bits(g.EEW_C) = read_single_element(g.EEW_C, c_flat, vd);
       var nan_out : bool = false;
 
@@ -2317,7 +2317,7 @@ function int_scaled_gemm(g : gemm_geom,
 
   foreach (j from 0 to (g.N - 1)) {
     foreach (i from 0 to (g.M - 1)) {
-      let c_flat : int      = mat_C_idx(i, j, g.M, g.MUL_C, g.lambda, g.epr_C);
+      let c_flat : int      = mat_C_idx(i, j, g.N, g.MUL_C, g.lambda, g.epr_C);
       var acc : bits(g.EEW_C) = read_single_element(g.EEW_C, c_flat, vd);
       var nan_out : bool = false;
 
@@ -2372,7 +2372,7 @@ Computes the matrix-matrix product T = vs1 × vs2 and accumulates it into _vd_: 
 with a widening factor of 8 applied to the K dimension.
 +
 _vs1_ is interpreted as an M×K tile (row-major register layout), _vs2_ as a K×N tile
-(column-major register layout), and _vd_ as an M×N accumulator tile (column-major register
+(column-major register layout), and _vd_ as an M×N accumulator tile (row-major register
 layout).
 _vs1_ and _vs2_ have elements of width SEW÷8; _vd_ has elements of width SEW.
 +
@@ -2454,7 +2454,7 @@ Computes the floating-point matrix-matrix product T = vs1 × vs2 and accumulates
 with a widening factor of 8 applied to the K dimension.
 +
 _vs1_ is interpreted as an M×K tile (row-major register layout), _vs2_ as a K×N tile
-(column-major register layout), and _vd_ as an M×N accumulator tile (column-major register
+(column-major register layout), and _vd_ as an M×N accumulator tile (row-major register
 layout).
 _vs1_ and _vs2_ have elements of width SEW÷8; _vd_ has elements of width SEW.
 +
@@ -2551,7 +2551,7 @@ Description::
 Computes the floating-point matrix-matrix product T = vs1 × vs2 and accumulates it into _vd_: C ← C + T.
 +
 _vs1_ is interpreted as an M×K tile (row-major register layout), _vs2_ as a K×N tile
-(column-major register layout), and _vd_ as an M×N accumulator tile (column-major register
+(column-major register layout), and _vd_ as an M×N accumulator tile (row-major register
 layout).  All three tiles have elements of width SEW.
 +
 K_effective = λ × LMUL.
@@ -2636,7 +2636,7 @@ Computes the floating-point matrix-matrix product T = vs1 × vs2 and accumulates
 with a widening factor of 4 applied to the K dimension.
 +
 _vs1_ is interpreted as an M×K tile (row-major register layout), _vs2_ as a K×N tile
-(column-major register layout), and _vd_ as an M×N accumulator tile (column-major register
+(column-major register layout), and _vd_ as an M×N accumulator tile (row-major register
 layout).
 _vs1_ and _vs2_ have elements of width SEW÷4; _vd_ has elements of width SEW.
 +
@@ -2737,7 +2737,7 @@ Computes the floating-point matrix-matrix product T = vs1 × vs2 and accumulates
 with a widening factor of 2 applied to the K dimension.
 +
 _vs1_ is interpreted as an M×K tile (row-major register layout), _vs2_ as a K×N tile
-(column-major register layout), and _vd_ as an M×N accumulator tile (column-major register
+(column-major register layout), and _vd_ as an M×N accumulator tile (row-major register
 layout).
 _vs1_ and _vs2_ have elements of width SEW÷2; _vd_ has elements of width SEW.
 +
@@ -2842,7 +2842,7 @@ scaled result into the floating-point accumulator _vd_: C ← C + scale_A × sca
 The widening factor is 2 applied to the K dimension.
 +
 _vs1_ is interpreted as an M×K tile (row-major register layout), _vs2_ as a K×N tile
-(column-major register layout), and _vd_ as an M×N FP accumulator tile (column-major
+(column-major register layout), and _vd_ as an M×N FP accumulator tile (row-major
 register layout).
 _vs1_ and _vs2_ have integer elements of width SEW÷2; _vd_ has FP elements of width SEW.
 +
@@ -2948,7 +2948,7 @@ scaled result into the floating-point accumulator _vd_: C ← C + scale_A × sca
 The widening factor is 8 applied to the K dimension.
 +
 _vs1_ is interpreted as an M×K tile (row-major register layout), _vs2_ as a K×N tile
-(column-major register layout), and _vd_ as an M×N FP accumulator tile (column-major
+(column-major register layout), and _vd_ as an M×N FP accumulator tile (row-major
 register layout).
 _vs1_ and _vs2_ have integer elements of width SEW÷8; _vd_ has FP elements of width SEW.
 +
@@ -3049,7 +3049,7 @@ scaled result into the floating-point accumulator _vd_: C ← C + scale_A × sca
 The widening factor is 4 applied to the K dimension.
 +
 _vs1_ is interpreted as an M×K tile (row-major register layout), _vs2_ as a K×N tile
-(column-major register layout), and _vd_ as an M×N FP accumulator tile (column-major
+(column-major register layout), and _vd_ as an M×N FP accumulator tile (row-major
 register layout).
 _vs1_ and _vs2_ have integer elements of width SEW÷4; _vd_ has FP elements of width SEW.
 +
@@ -3149,7 +3149,7 @@ Description::
 Computes the matrix-matrix product T = vs1 × vs2 and accumulates it into _vd_: C ← C + T.
 +
 _vs1_ is interpreted as an M×K tile (row-major register layout), _vs2_ as a K×N tile
-(column-major register layout), and _vd_ as an M×N accumulator tile (column-major register
+(column-major register layout), and _vd_ as an M×N accumulator tile (row-major register
 layout).  All three tiles have elements of width SEW.
 +
 K_effective = λ × LMUL.
@@ -3630,7 +3630,7 @@ Computes the matrix-matrix product T = vs1 × vs2 and accumulates it into _vd_: 
 with a widening factor of 4 applied to the K dimension.
 +
 _vs1_ is interpreted as an M×K tile (row-major register layout), _vs2_ as a K×N tile
-(column-major register layout), and _vd_ as an M×N accumulator tile (column-major register
+(column-major register layout), and _vd_ as an M×N accumulator tile (row-major register
 layout).
 _vs1_ and _vs2_ have elements of width SEW÷4; _vd_ has elements of width SEW.
 +
@@ -3706,7 +3706,7 @@ Computes the matrix-matrix product T = vs1 × vs2 and accumulates it into _vd_: 
 with a widening factor of 2 applied to the K dimension.
 +
 _vs1_ is interpreted as an M×K tile (row-major register layout), _vs2_ as a K×N tile
-(column-major register layout), and _vd_ as an M×N accumulator tile (column-major register
+(column-major register layout), and _vd_ as an M×N accumulator tile (row-major register
 layout).
 _vs1_ and _vs2_ have elements of width SEW÷2; _vd_ has elements of width SEW.
 +
