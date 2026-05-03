@@ -1446,8 +1446,11 @@ The naming convention and type system extend the RISC-V V Intrinsics API
   `__riscv_{mnemonic}_vv_{accum}_{inputA}_{inputB}`.
   When `altfmt_A = altfmt_B`, a single input-type suffix suffices.
 * The canonical suffix ordering for the long-form name is:
-  `{type-suffix}[_{inputA}[_{inputB}]][_su|_us][_lm{N}][_L{N}]`
+  `{type-suffix}[_{inputA}[_{inputB}]][_su|_us][_lm{N}][_L{N}][_m]`
   where each bracketed component is omitted when not applicable.
+  The `_m` (masked) suffix is reserved for tile load/store intrinsics
+  and always appears last; `_L{N}` (immediate-lambda) and `_m` are
+  orthogonal and may be combined as `_L{N}_m`.
 
 ===== Overloaded short forms (GCC and Clang)
 
@@ -1590,6 +1593,38 @@ void         __riscv_vmts_v_i32m1_L4  (int32_t *base, size_t ld, vint32m1_t vs3,
 vint32m1_t   __riscv_vmttl_v_i32m1_L4 (const int32_t *base, size_t ld, size_t vl);
 /* vmtts.v with lambda=4: */
 void         __riscv_vmtts_v_i32m1_L4 (int32_t *base, size_t ld, vint32m1_t vs3, size_t vl);
+--
+
+Tile load and store intrinsics support an optional mask through the
+`_m` suffix.  The masked load takes a leading `vbool{N}_t mask` argument;
+the masked store takes a leading `vbool{N}_t mask` followed by the usual
+arguments.  The mask bit width matches the data type's element width
+(e.g., `vbool8_t` for `i8m1`, `vbool32_t` for `i32m1`, `vbool16_t` for
+`bf16m1`), following the standard V-extension convention.
+
+[source,c]
+--
+/* vmtl.v masked: */
+vint8m1_t  __riscv_vmtl_v_i8m1_m  (vbool8_t mask,  const int8_t  *base, size_t ld, size_t vl);
+vint32m1_t __riscv_vmtl_v_i32m1_m (vbool32_t mask, const int32_t *base, size_t ld, size_t vl);
+/* vmts.v masked: */
+void __riscv_vmts_v_i8m1_m  (vbool8_t mask,  int8_t  *base, size_t ld, vint8m1_t  vs3, size_t vl);
+void __riscv_vmts_v_i32m1_m (vbool32_t mask, int32_t *base, size_t ld, vint32m1_t vs3, size_t vl);
+/* vmttl.v masked: */
+vint32m1_t __riscv_vmttl_v_i32m1_m (vbool32_t mask, const int32_t *base, size_t ld, size_t vl);
+/* vmtts.v masked: */
+void __riscv_vmtts_v_i32m1_m (vbool32_t mask, int32_t *base, size_t ld, vint32m1_t vs3, size_t vl);
+--
+
+The `_L{N}` (immediate-lambda) and `_m` (masked) qualifiers are orthogonal
+and may be combined.  `_L{N}` precedes `_m` per the canonical suffix order:
+
+[source,c]
+--
+/* vmtl.v with lambda=4 and a mask: */
+vint8m1_t __riscv_vmtl_v_i8m1_L4_m (vbool8_t mask, const int8_t *base, size_t ld, size_t vl);
+/* vmts.v with lambda=4 and a mask: */
+void      __riscv_vmts_v_i8m1_L4_m (vbool8_t mask, int8_t *base, size_t ld, vint8m1_t vs3, size_t vl);
 --
 
 ===== Integer matrix multiply-accumulate (Zvvmm)
