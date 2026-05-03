@@ -1491,6 +1491,39 @@ NOTE: The mechanism used for overload resolution in C is compiler-specific
 The resulting user-visible API is identical across compilers; only the internal
 implementation differs.
 
+===== Geometry-query intrinsics
+
+Two non-instruction intrinsics expose the implementation's IME geometry to
+software:
+
+[source,c]
+--
+size_t __riscv_ime_vlen   (void);   /* VLEN in bits */
+size_t __riscv_ime_lambda (void);   /* implementation lambda value */
+--
+
+`__riscv_ime_vlen()` returns the architectural VLEN (in bits).  When VLEN is
+known to the compiler — for example via `-mrvv-vector-bits=zvl` on GCC or
+Clang — the call folds to a load-immediate; otherwise the compiler emits
+`csrr vlenb` followed by a left-shift by 3.
+
+`__riscv_ime_lambda()` returns the implementation's lambda value as observed
+by the matrix unit.  When VLEN is statically known the call folds to a
+constant; otherwise the compiler emits a runtime sequence (typically
+`csrr vlenb` followed by `ctz` and a shift) that derives lambda from VLEN.
+
+These intrinsics are the supported way for software to discover the
+implementation's tile geometry without parsing CSR fields directly, and are
+intended for use in the runtime-dispatch pattern described in
+<<_vlen_portable_code>>: software queries lambda (and VLEN, if needed),
+then selects an appropriate code path among several specialised by MUL_C.
+
+NOTE: `__riscv_ime_lambda()` returns a single representative lambda value
+for the implementation.  Implementations may support multiple lambda values
+in `vtype.lambda[2:0]` (the field is WARL).  Software that needs to enumerate
+all supported lambda values must do so through `vsetvl` write-readback at
+the relevant SEW; see <<_vlen_portable_code>>.
+
 ===== Tile load and store (Zvvmtls) and transposed tile load and store (Zvvmttls)
 
 The load intrinsics accept a base pointer, a leading-dimension `ld` in
