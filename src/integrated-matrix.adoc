@@ -67,7 +67,7 @@ The three matrices in the multiply-accumulate operation C ← A × B^T^ + C are 
   The effective K dimension of the multiply (K_eff) equals λ × W × LMUL, where W is 1 for non-widening instructions, 2 for 2× widening instructions, 4 for 4× widening instructions, and 8 for 8× widening instructions.
   LMUL scales the A and B register groups along the K dimension only and does not affect C.
   Only integer values of LMUL are supported by the Zvvm family of Integrated Matrix extensions: LMUL ∈ {1, 2, 4, 8}.
-  Fractional LMUL settings (LMUL < 1) are reserved and shall raise an illegal-instruction exception when used with any IME instruction.
+  Fractional LMUL settings (LMUL < 1) are reserved when used with any IME instruction.
 
 [#ime-geometry-fig]
 .Geometry of matrix tiles and element ordering for 32 element vector registers and λ=4. VRs are interpreted as 2D tiles. Vector element indices show the tile element order. (a) Non-widening case (W=1) with A, B, and C having the same SEW. (b) Double-widening case (W=2) with A and B at half the SEW of C, with two narrow input elements packed into each SEW-wide storage position.
