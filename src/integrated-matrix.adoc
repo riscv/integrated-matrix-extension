@@ -7,7 +7,7 @@
 
 === Introduction
 
-High-performance computing and machine learning workloads depend critically on general matrix multiplication (GEMM) over a wide range of data types and precisions.
+High-performance computing and machine learning workloads depend critically on general matrix multiplication over a wide range of data types and precisions.
 Dedicated matrix-multiply accelerators often require new register state—separate matrix register files—to achieve competitive throughput, introducing substantial architectural complexity and binary interface disruption.
 
 The Zvvm family of Integrated Matrix extensions (Zvvmm, Zvvfmm, Zvvmtls, Zvvmttls) takes a different approach: it accelerates matrix multiplication using _only_ the 32 × VLEN architected vector registers already defined by the RISC-V "V" vector extension.
