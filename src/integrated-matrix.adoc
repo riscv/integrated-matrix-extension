@@ -1763,6 +1763,22 @@ vint32m2_t __riscv_vwmmacc_vv_i32m2_us(vint32m2_t vd, vuint16m1_t vs1,
                                         vint16m1_t  vs2, size_t vl);
 --
 
+The `_su` / `_us` mixed-sign suffix and the `_lm{N}` LMUL suffix combine
+in the canonical order `_su|_us` followed by `_lm{N}`:
+
+[source,c]
+--
+/* vmmacc.vv signed A × unsigned B with LMUL=2 (MUL_C=2, LMUL=2): */
+vint32m2_t __riscv_vmmacc_vv_i32m2_su_lm2(vint32m2_t vd, vint32m2_t  vs1,
+                                            vuint32m2_t vs2, size_t vl);
+/* vwmmacc.vv signed A × unsigned B with LMUL=4 (MUL_C=2, LMUL=4): */
+vint32m2_t __riscv_vwmmacc_vv_i32m2_su_lm4(vint32m2_t vd, vint16m4_t  vs1,
+                                              vuint16m4_t vs2, size_t vl);
+/* vqwmmacc.vv unsigned A × signed B with LMUL=8 (MUL_C=2, LMUL=8): */
+vint32m2_t __riscv_vqwmmacc_vv_i32m2_us_lm8(vint32m2_t vd, vuint8m8_t vs1,
+                                               vint8m8_t  vs2, size_t vl);
+--
+
 ===== Floating-point matrix multiply-accumulate (Zvvfmm)
 
 The OFP8 vector types `vfloat8e4m3mX_t` (E4M3) and `vfloat8e5m2mX_t` (E5M2),
@@ -1868,12 +1884,30 @@ vfloat16m4_t __riscv_vfwmmacc_vv_f16m4_f8e4m3m1_f8e5m2m1(vfloat16m4_t vd,
 /* Mixed 16-bit: FP16 × BF16 → FP32 via vfwmmacc.vv (altfmt_A=0, altfmt_B=1): */
 vfloat32m2_t __riscv_vfwmmacc_vv_f32m2_f16m1_bf16m1(vfloat32m2_t vd,
                                                       vfloat16m1_t vs1, vbfloat16m1_t vs2, size_t vl);
+/* Mixed OFP8 with BF16 accumulator (altfmt selects BF16 over FP16
+   for the C type, plus altfmt_A=0, altfmt_B=1 for the inputs).
+   The accumulator type appears once, followed by both input types: */
+vbfloat16m4_t __riscv_vfwmmacc_vv_bf16m4_f8e4m3m1_f8e5m2m1(vbfloat16m4_t vd,
+                                                              vfloat8e4m3m1_t vs1, vfloat8e5m2m1_t vs2, size_t vl);
+/* Mixed OFP8 → OFP8 (non-widening vfmmacc.vv).  Both input formats and
+   the accumulator format are independent; up to three type tokens: */
+vfloat8e4m3m1_t __riscv_vfmmacc_vv_f8e4m3m1_f8e4m3m1_f8e5m2m1(vfloat8e4m3m1_t vd,
+                                                                  vfloat8e4m3m1_t vs1, vfloat8e5m2m1_t vs2, size_t vl);
 /* Overloaded short forms — compiler resolves from vs1/vs2 types: */
 vfloat16m4_t __riscv_vfwmmacc_vv(vfloat16m4_t vd,
                                   vfloat8e4m3m1_t vs1, vfloat8e5m2m1_t vs2, size_t vl) __attribute__((overloadable));
 vfloat32m2_t __riscv_vfwmmacc_vv(vfloat32m2_t vd,
                                   vfloat16m1_t vs1, vbfloat16m1_t vs2, size_t vl) __attribute__((overloadable));
+vbfloat16m4_t __riscv_vfwmmacc_vv(vbfloat16m4_t vd,
+                                    vfloat8e4m3m1_t vs1, vfloat8e5m2m1_t vs2, size_t vl) __attribute__((overloadable));
 --
+
+The three-token long-form name encodes the accumulator type first (as
+the canonical type-suffix), followed by the A and B input-type suffixes
+in order.  When the accumulator is the default for the given instruction
+and SEW (e.g., FP16 for `vfwmmacc.vv` with 8-bit inputs), the two-token
+form is used; the three-token form arises only when the accumulator type
+itself is a non-default selection (e.g., BF16 from `vfwmmacc.vv`).
 
 
 The `vfwimmacc.vv` and `vfqimmacc.vv` instructions use integer input tiles
