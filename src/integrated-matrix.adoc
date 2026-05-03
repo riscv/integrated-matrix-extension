@@ -39,7 +39,8 @@ When `W = 1`, the instruction is _non-widening_: each input element has width `S
 and no packing occurs.
 
 When `W > 1`, the instruction is _widening_: each input element has width `SEW/W`,
-and `W` such narrow input elements are packed into each `SEW`-wide storage position.
+and `W` such narrow input elements are packed into each `SEW`-wide storage position
+(element-group size `EGS` = `W`).
 
 Thus, "packing" refers to the storage layout of the inputs in the vector registers,
 whereas "widening" refers to the arithmetic relationship between the input element width
