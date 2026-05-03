@@ -46,6 +46,10 @@ whereas "widening" refers to the arithmetic relationship between the input eleme
 and the accumulator element width. In this specification, these two views are coupled by
 the same parameter `W`.
 
+The packed layout of `W` narrow input elements within one `SEW`-wide storage position
+is an _element group_ in the sense of the base RISC-V V vector specification, with an
+element-group size (`EGS`) of `W`.
+
 Matrix tiles are represented using the existing RISC-V V register file and its configuration state.
 The three matrices in the multiply-accumulate operation C ← A × B^T^ + C are stored as follows:
 
