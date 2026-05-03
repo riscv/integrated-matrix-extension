@@ -15,7 +15,7 @@ By interpreting groups of existing vector registers as two-dimensional matrix ti
 We focus, in particular, on the computation of C ← A × B^T^ + C, where A (σ × λ), B (σ × λ) and C (σ × σ) are row-major matrix panels.
 
 The extensions are designed to support implementations spanning a wide range of microarchitectures and performance points: from small, embedded in-order cores targeting low-power and area-constrained applications, to large, high-performance out-of-order implementations targeting HPC and AI workloads.
-A key design goal is that the same binary executes correctly—and achieves near-peak arithmetic throughput—across this entire range without recompilation.
+A key architectural goal is that the same binary executes correctly—and achieves near-peak arithmetic throughput—across this entire range without recompilation.
 
 
 === Overview
