@@ -1826,6 +1826,70 @@ vfloat16m4_t __riscv_vfqimmacc_vv_f16m4_i4m1(vfloat16m4_t vd,
 vbfloat16m4_t __riscv_vfqimmacc_vv_bf16m4_u4m1(vbfloat16m4_t vd,
                                                   vuint4m1_t vs1, vuint4m1_t vs2, size_t vl);
 --
+
+===== Microscaled multiply-accumulate intrinsics
+
+Microscaled (MX) multiply-accumulate variants take an extra `vuint16m1_t v0`
+argument carrying the paired block-scale values (see <<integrated-matrix-microscaling>>).
+Two qualifiers in the intrinsic name distinguish them from the unscaled forms:
+
+* `_scaled` — applied to the floating-point widening intrinsics
+  (`vfwmmacc`, `vfqmmacc`, `vf8wmmacc`).  These instructions exist in both
+  unscaled and scaled forms; the qualifier disambiguates.
+* `_bs{N}` (N ∈ {16, 32}) — appended to the type-suffix to select the
+  block size.  This applies to all microscaled intrinsics, including the
+  integer-input ones (`vfwimmacc`, `vfqimmacc`, `vf8wimmacc`), which
+  exist only in the microscaled form and therefore do not carry `_scaled`.
+
+The full canonical suffix order for microscaled multiply-accumulate
+intrinsics extends the one given in <<integrated-matrix-intrinsics>>:
+
+----
+{type-suffix}[_{inputA}[_{inputB}]][_su|_us][_lm{N}]_bs{N}
+----
+
+[source,c]
+--
+/* Floating-point microscaled (FP × FP × MX scale): _scaled qualifier */
+
+/* FP16 × FP16 → FP32, block size 32 */
+vfloat32m2_t __riscv_vfwmmacc_scaled_vv_f32m2_f16m1_bs32(
+    vfloat32m2_t vd, vfloat16m1_t vs1, vfloat16m1_t vs2,
+    vuint16m1_t v0, size_t vl);
+/* FP16 × FP16 → FP32, block size 16 */
+vfloat32m2_t __riscv_vfwmmacc_scaled_vv_f32m2_f16m1_bs16(
+    vfloat32m2_t vd, vfloat16m1_t vs1, vfloat16m1_t vs2,
+    vuint16m1_t v0, size_t vl);
+/* OFP8 E4M3 × OFP8 E4M3 → FP32, block size 32 */
+vfloat32m2_t __riscv_vfqwmmacc_scaled_vv_f32m2_f8e4m3m1_bs32(
+    vfloat32m2_t vd, vfloat8e4m3m1_t vs1, vfloat8e4m3m1_t vs2,
+    vuint16m1_t v0, size_t vl);
+/* OFP4 E2M1 × OFP4 E2M1 → FP32, block size 32 */
+vfloat32m2_t __riscv_vf8wmmacc_scaled_vv_f32m2_f4e2m1m1_bs32(
+    vfloat32m2_t vd, vfloat4e2m1m1_t vs1, vfloat4e2m1m1_t vs2,
+    vuint16m1_t v0, size_t vl);
+
+/* Integer-input microscaled (Int × Int × MX scale → FP):
+   no _scaled qualifier — these instructions only exist in MX form. */
+
+/* MXINT8 → FP16, block size 32 */
+vfloat16m1_t __riscv_vfwimmacc_vv_f16m1_i8m1_bs32(
+    vfloat16m1_t vd, vint8m1_t vs1, vint8m1_t vs2,
+    vuint16m1_t v0, size_t vl);
+/* MXINT8 → FP32, block size 32 */
+vfloat32m2_t __riscv_vfqwimmacc_vv_f32m2_i8m1_bs32(
+    vfloat32m2_t vd, vint8m1_t vs1, vint8m1_t vs2,
+    vuint16m1_t v0, size_t vl);
+/* MXINT4 → FP64, block size 32 */
+vfloat64m4_t __riscv_vf8wimmacc_vv_f64m4_i8m1_bs32(
+    vfloat64m4_t vd, vint8m1_t vs1, vint8m1_t vs2,
+    vuint16m1_t v0, size_t vl);
+--
+
+The scale-format is implied by the input data type per the encoding maps in
+<<integrated-matrix-microscaling>>; software does not select the scale
+format separately.
+
 ===== VLEN-portable code
 
 Because MUL_C = VLEN / (SEW × λ²), the accumulator register-group multiplier
