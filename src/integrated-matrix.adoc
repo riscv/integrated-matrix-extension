@@ -95,8 +95,8 @@ The tile dimensions follow from the widening and LMUL settings:
 NOTE: MUL_C = VLEN ÷ (SEW × λ²) is independent of both W and LMUL; the C register group always occupies MUL_C vector registers regardless of how A and B are configured.
 
 The elements in the vector registers are contiguous along the K direction (with λ such elements per single vector register), as depicted in
-<<ime-geometry-fig>>. Tile A and C elements are sorted in row-major order while tile B^T^
-elements are sorted in column-major order. This choice allows the implementation of the
+<<ime-geometry-fig>>. Tile A and C elements are stored in row-major order while tile B^T^
+elements are stored in column-major order. This choice allows the implementation of the
 matrix tile multiplication as inner product (e.g., a systolic array) or outer product and
 simplifies the implementation of high-rank updates based on outer products.
 
