@@ -60,8 +60,7 @@ The three matrices in the multiply-accumulate operation C ← A × B^T^ + C are 
   The C register group may start at any vector register index that is MUL_C-aligned.
   λ^2^ must divide (VLEN / SEW) such that
   MUL_C ∈ {1, 2, 4, 8, 16}.
-  If MUL_C = 16, the only allowed vector register indices are 0 and 16.
-  In general, the vector register index for the C register group must be a mulitple of MUL_C.
+  If MUL_C = 16, for example, the only allowed vector register indices are 0 and 16.
 
 * The _input matrices_ A and B are stored in vector register groups with element width determined by the instruction:
   equal to SEW for non-widening variants (`W=1`), and equal to SEW/2, SEW/4, or SEW/8 for widening variants (`W=2`, `W=4`, or `W=8`), with the narrower input elements packed within each `SEW`-wide storage position.
