@@ -11,7 +11,7 @@ High-performance computing and machine learning workloads depend critically on g
 Dedicated matrix-multiply accelerators often require new register state—separate matrix register files—to achieve competitive throughput, introducing substantial architectural complexity and binary interface disruption.
 
 The Zvvm family of Integrated Matrix extensions (Zvvmm, Zvvfmm, Zvvmtls, Zvvmttls) takes a different approach: it accelerates matrix multiplication using _only_ the 32 × VLEN architected vector registers already defined by the RISC-V "V" vector extension.
-By interpreting groups of existing vector registers as two-dimensional matrix tiles, the Zvvm family of Integrated Matrix extensions delivers high arithmetic density without introducing any new architected state.
+By interpreting existing vector register groups as two-dimensional matrix tiles, the Zvvm family of Integrated Matrix extensions delivers high arithmetic density without introducing any new architected state.
 We focus, in particular, on the computation of C ← A × B^T^ + C, where A (σ × λ), B (σ × λ) and C (σ × σ) are row-major matrix panels.
 
 The extensions are designed to support implementations spanning a wide range of microarchitectures and performance points: from small, embedded in-order cores targeting low-power and area-constrained applications, to large, high-performance out-of-order implementations targeting HPC and AI workloads.
@@ -24,8 +24,8 @@ The Zvvm family of Integrated Matrix extensions (Zvvmm, Zvvfmm, Zvvmtls, Zvvmttl
 
 * <<#zvvmm>>: multiply-accumulate instructions for integer matrix tiles
 * <<#zvvfmm>>: multiply-accumulate instructions for floating-point matrix tiles
-* <<#zvvmtls>>: two-dimensional load/store instructions for moving data between memory and vector registers interpreted as matrix tiles
-* <<#zvvmttls>>: two-dimensional transposing load/store instructions for moving data between memory and vector registers interpreted as matrix tiles
+* <<#zvvmtls>>: two-dimensional load/store instructions for moving data between memory and vector register groups interpreted as matrix tiles
+* <<#zvvmttls>>: two-dimensional transposing load/store instructions for moving data between memory and vector register groups interpreted as matrix tiles
 
 ==== Matrix tile multiplication geometry
 
@@ -42,7 +42,7 @@ When `W > 1`, the instruction is _widening_: each input element has width `SEW/W
 and `W` such narrow input elements are packed into each `SEW`-wide storage position
 (element-group size `EGS` = `W`).
 
-Thus, "packing" refers to the storage layout of the inputs in the vector registers,
+Thus, "packing" refers to the storage layout of the inputs in the vector register groups,
 whereas "widening" refers to the arithmetic relationship between the input element width
 and the accumulator element width. In this specification, these two views are coupled by
 the same parameter `W`.
@@ -446,7 +446,7 @@ input data in memory must pack adjacent elements within each byte
 accordingly.
 
 [#zvvmm,reftext=Matrix-multiplication instructions (integer)]
-=== Zvvmm: Extension for matrix multiplication on vector registers interpreted as 2D integer matrix tiles
+=== Zvvmm: Extension for matrix multiplication on vector register groups interpreted as 2D integer matrix tiles
 
 The `Zvvmm` family of extensions provides instructions that perform matrix multiply-accumulate on integer data, computing C ← C + A × B^T^, where A, B, and C are matrix tiles held in the vector register file.
 
@@ -489,7 +489,7 @@ For integer multiply-accumulate instructions, all intermediate results are reduc
 Because modular addition is both associative and commutative, the final result is uniquely defined regardless of the accumulation order or grouping factor.
 
 [#zvvfmm,reftext=Matrix-multiplication instructions (floating-point)]
-=== Zvvfmm: Extension for matrix multiplication on vector registers interpreted as 2D floating-point matrix tiles
+=== Zvvfmm: Extension for matrix multiplication on vector register groups interpreted as 2D floating-point matrix tiles
 
 The `Zvvfmm` family of extensions provides floating-point matrix multiply-accumulate instructions, computing C ← C + A × B^T^.
 A, B, and C are matrix tiles held in the vector register file.
@@ -1105,7 +1105,7 @@ input formats (OFP4, OFP8, Int4, Int8) are listed separately in
 All currently defined microscaling extensions use the E8M0 scale format.
 
 [#zvvmtls,reftext=Load/store instructions for matrix tiles]
-=== Zvvmtls: Extension for loading and storing vector registers interpreted as 2D matrix tiles
+=== Zvvmtls: Extension for loading and storing vector register groups interpreted as 2D matrix tiles
 
 The `Zvvmtls` extension provides instructions that transfer 2D matrix tiles between memory and the vector register file without requiring a separate repacking step.
 Matrix data in memory is typically stored as a large 2D array in row-major or column-major order with a leading dimension that may exceed the tile width.
