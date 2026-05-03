@@ -29,7 +29,7 @@ The Zvvm family of Integrated Matrix extensions (Zvvmm, Zvvfmm, Zvvmtls, Zvvmttl
 
 ==== Matrix tile multiplication geometry
 
-The geometry of the multiplier and the tiles is defined by the new parameter `lambda` (λ) which is encoded in 3 bits in the `vtype` CSR, and vector operation parameters like the widening `W` of the multiplication encoded in the instruction, `LMUL`, `SEW` and `VLEN`.
+The geometry of the multiplier and the tiles is defined by the new `vtype` field `lambda` (λ), encoded in 3 bits, in combination with the per-instruction widening factor `W` and the standard vector-configuration values `LMUL`, `SEW`, and `VLEN`.
 
 The Zvvm family uses the parameter `W` to describe both the arithmetic widening ratio
 and the corresponding packing of input elements within each `SEW`-wide storage position.
