@@ -70,7 +70,7 @@ The three matrices in the multiply-accumulate operation C ← A × B^T^ + C are 
   Fractional LMUL settings (LMUL < 1) are reserved when used with any IME instruction.
 
 [#ime-geometry-fig]
-.Geometry of matrix tiles and element ordering for 32 element vector registers and λ=4. VRs are interpreted as 2D tiles. Vector element indices show the tile element order. (a) Non-widening case (W=1) with A, B, and C having the same SEW. (b) Double-widening case (W=2) with A and B at half the SEW of C, with two narrow input elements packed into each SEW-wide storage position.
+.Geometry of matrix tiles and element ordering for 32 element vector registers and λ=4. Vector register groups are interpreted as 2D tiles. Vector element indices show the tile element order. (a) Non-widening case (W=1) with A, B, and C having the same SEW. (b) Double-widening case (W=2) with A and B at half the SEW of C, with two narrow input elements packed into each SEW-wide storage position.
 image::png/ime-geometry.png[width=100%, align=center, alt="Diagram of matrix tile geometry and multiplier configuration parameters."]
 
 The K-dimension of the multiplication (shared inner dimension of A and B^T^) is determined by λ from `vtype`, scaled by a per-instruction widening factor W and further multiplied by LMUL:
@@ -848,7 +848,7 @@ where M = N = VLEN ÷ (SEW × λ).  Because M × R = (VLEN ÷ (SEW × λ)) ×
 regardless of configuration.
 
 [#ime-mx-v0-lanes]
-.Example for the use of microscales in a 4-lane setup for two blocks per row / column. The red lines symbolize the split of the VRs across the lanes. The R-strided scales distribution in `v0` leads to the correct lane-wise block scales layout.
+.Example for the use of microscales in a 4-lane setup for two blocks per row / column. The red lines symbolize the split of the vector register group across the lanes. The R-strided scales distribution in `v0` leads to the correct lane-wise block scales layout.
 image::png/ime-mx-v0-lanes.png[width="69%", align="center"]
 
 **Capacity proof:**
@@ -1126,12 +1126,12 @@ The tile load and store instructions make use of the following parameters from t
 * λ — selected lambda, read from `lambda[2:0]` in `vtype`
 
 When loading A or B input tiles, `vmtl.v` and `vmttl.v` shall be used with SEW equal to the element width of the C accumulator tile.
-<<#ime-load-store-geometry>> illustrates the memory to VR load for both row-major and column-major order for a tile with LMUL=1.
+<<#ime-load-store-geometry>> illustrates the memory-to-vector-register-group load for both row-major and column-major order for a tile with LMUL=1.
 Physically both transfers are identical: they move contiguous segments of length _linesize_ = λ × LMUL with a stride of LD between them.
-The tile load/store instructions interpret the memory layout according to the specified leading dimension, but the resulting data layout in the VR is the same regardless of whether the source/destination matrix is stored in row-major or column-major order.
+The tile load/store instructions interpret the memory layout according to the specified leading dimension, but the resulting data layout in the vector register group is the same regardless of whether the source/destination matrix is stored in row-major or column-major order.
 
 [#ime-load-store-geometry]
-.Loading a matrix tile from memory for LMUL=1. The matrix is laid out linearly in memory, the leading dimension LD specifies its row size (a) or column size (b). Element indices represent the offset of the elements in memory. Blue arrows indicate the data ordering in memory/VR.
+.Loading a matrix tile from memory for LMUL=1. The matrix is laid out linearly in memory, the leading dimension LD specifies its row size (a) or column size (b). Element indices represent the offset of the elements in memory. Blue arrows indicate the data ordering in memory and in the vector register group.
 image::png/ime-load-store-geometry.png[align="center"]
 
 If (rs2) = 0, then the leading dimension LD is set to the _natural dimension_ of λ × LMUL.
