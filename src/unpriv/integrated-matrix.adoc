@@ -7,41 +7,42 @@
 
 === Introduction
 
-High-performance computing and machine learning workloads depend critically on general matrix multiplication (GEMM) over a wide range of data types and precisions.
+High-performance computing and machine learning workloads depend critically on matrix multiply-accumulate over a wide range of data types and precisions.
 Dedicated matrix-multiply accelerators often require new register state—separate matrix register files—to achieve competitive throughput, introducing substantial architectural complexity and binary interface disruption.
 
 The Zvvm family of Integrated Matrix extensions (Zvvmm, Zvvfmm, Zvvmtls, Zvvmttls) takes a different approach: it accelerates matrix multiplication using _only_ the 32 × VLEN architected vector registers already defined by the RISC-V "V" vector extension.
-By interpreting groups of existing vector registers as two-dimensional matrix tiles, the Zvvm family of Integrated Matrix extensions delivers high arithmetic density without introducing any new architected state.
+By interpreting vector register groups as two-dimensional matrix tiles, the Zvvm family of Integrated Matrix extensions delivers high arithmetic density without introducing any new architected state.
 We focus, in particular, on the computation of C ← A × B^T^ + C, where A (σ × λ), B (σ × λ) and C (σ × σ) are row-major matrix panels.
 
 The extensions are designed to support implementations spanning a wide range of microarchitectures and performance points: from small, embedded in-order cores targeting low-power and area-constrained applications, to large, high-performance out-of-order implementations targeting HPC and AI workloads.
-A key design goal is that the same binary executes correctly—and achieves near-peak arithmetic throughput—across this entire range without recompilation.
+A key architectural goal is that the same binary executes correctly—and achieves near-peak arithmetic throughput—across this entire range without recompilation.
 
 
 === Overview
 
-The Zvvm family of Integrated Matrix extensions (Zvvmm, Zvvfmm, Zvvmtls, Zvvmttls) provides the following subextensions:
+The Zvvm family of Integrated Matrix extensions consists of the following extensions:
 
-* <<#zvvmm>>: multiply-accumulate instructions for integer matrix tiles
-* <<#zvvfmm>>: multiply-accumulate instructions for floating-point matrix tiles
-* <<#zvvmtls>>: two-dimensional load/store instructions for moving data between memory and vector registers interpreted as matrix tiles
-* <<#zvvmttls>>: two-dimensional transposing load/store instructions for moving data between memory and vector registers interpreted as matrix tiles
+* Zvvmm    - <<#zvvmm>>: multiply-accumulate instructions for integer matrix tiles
+* Zvvfmm   - <<#zvvfmm>>: multiply-accumulate instructions for floating-point matrix tiles
+* Zvvmtls  - <<#zvvmtls>>: two-dimensional load/store instructions for moving data between memory and vector register groups interpreted as matrix tiles
+* Zvvmttls - <<#zvvmttls>>: two-dimensional transposing load/store instructions for moving data between memory and vector register groups interpreted as matrix tiles
 
 ==== Matrix tile multiplication geometry
 
-The geometry of the multiplier and the tiles is defined by the new parameter `lambda` (λ) which is encoded in 3 bits in the `vtype` CSR, and vector operation parameters like the widening `W` of the multiplication encoded in the instruction, `LMUL`, `SEW` and `VLEN`.
+The geometry of the multiplier and the tiles is defined by the new `lambda` (λ) field, which is encoded in 3 bits in the `vtype` CSR, the existing `vtype` fields `LMUL`, `SEW`, and `VLEN`, and the widening factor `W` defined by instruction opcode.
 
-The Zvvm family uses the parameter `W` to describe both the arithmetic widening ratio
-and the corresponding packing of input elements within each `SEW`-wide storage position.
+The Zvvm family uses the widening factor `W` to describe both the arithmetic widening ratio
+and the corresponding packing of input elements within each `SEW`-wide element group.
+The elements of accumulator `C` always have width `SEW` and corresponding element group size (EGS) of 1.
 
 When `W = 1`, the instruction is _non-widening_: each input element has width `SEW`,
-no packing occurs, and the accumulator C also has width `SEW`.
+no packing occurs, and the element group sizes of inputs `A` and `B` are both 1.
 
 When `W > 1`, the instruction is _widening_: each input element has width `SEW/W`,
-and `W` such narrow input elements are packed into each `SEW`-wide storage position.
-The accumulator C still has width `SEW`.
+and `W` such narrow input elements are packed into an `SEW`-wide vector element group.
+Correspondingly, element group sizes of both `A` and `B` are `W`.
 
-Thus, "packing" refers to the storage layout of the inputs in the vector registers,
+Thus, "packing" refers to the storage layout of the inputs in the vector register groups,
 whereas "widening" refers to the arithmetic relationship between the input element width
 and the accumulator element width. In this specification, these two views are coupled by
 the same parameter `W`.
@@ -49,46 +50,51 @@ the same parameter `W`.
 Matrix tiles are represented using the existing RISC-V V register file and its configuration state.
 The three matrices in the multiply-accumulate operation C ← A × B^T^ + C are stored as follows:
 
-* The _accumulator_ C is stored in a vector register group with element width SEW.
-  Its register group multiplier MUL_C is determined by the tile geometry:
-  MUL_C = (VLEN / SEW) / λ^2^, where λ is the tile-layout parameter decoded from the `lambda[2:0]` field in `vtype`.
-  The C register group may start at any vector register index that is MUL_C-aligned.
+* The _accumulator_ C is stored in a vector register group with element width `SEW`.
+  Its its effective register group multiplier, EMUL_C, is determined by the tile geometry:
+  EMUL_C = (VLEN / SEW) / λ^2^, where λ is the tile-layout parameter decoded from the `lambda[2:0]` field in `vtype`.
+  The C register group may start at any vector register index that is EMUL_C-aligned.
   λ^2^ must divide (VLEN / SEW) such that
-  MUL_C ∈ {1, 2, 4, 8, 16}.
-  If MUL_C = 16, the only allowed vector register indices are 0 and 16.
-  In general, the vector register index for the C register group must be a mulitple of MUL_C.
+  EMUL_C ∈ {1, 2, 4, 8, 16}.
+  In compliance with the RISC-V "V" extensions, the vector register index for the C register group must be a mulitple of EMUL_C, including for EMUL_C = 16.
 
 * The _input matrices_ A and B are stored in vector register groups with element width determined by the instruction:
   equal to SEW for non-widening variants (`W=1`), and equal to SEW/2, SEW/4, or SEW/8 for widening variants (`W=2`, `W=4`, or `W=8`), with the narrower input elements packed within each `SEW`-wide storage position.
   The effective K dimension of the multiply (K_eff) equals λ × W × LMUL, where W is 1 for non-widening instructions, 2 for 2× widening instructions, 4 for 4× widening instructions, and 8 for 8× widening instructions.
   LMUL scales the A and B register groups along the K dimension only and does not affect C.
   Only integer values of LMUL are supported by the Zvvm family of Integrated Matrix extensions: LMUL ∈ {1, 2, 4, 8}.
-  Fractional LMUL settings (LMUL < 1) are reserved and shall raise an illegal-instruction exception when used with any IME instruction.
+  Fractional LMUL settings (LMUL < 1) are reserved.
 
 [#ime-geometry-fig]
-.Geometry of matrix tiles and element ordering for 32 element vector registers and λ=4. VRs are interpreted as 2D tiles. Vector element indices show the tile element order. (a) Non-widening case (W=1) with A, B, and C having the same SEW. (b) Double-widening case (W=2) with A and B at half the SEW of C, with two narrow input elements packed into each SEW-wide storage position.
+.Geometry of matrix tiles and element ordering for `VLEN`/`SEW` (vector length in C element width) = 32 and λ=4. Vector register groups are interpreted as 2D tiles. Vector element indices show the tile element order. (a) Non-widening case (W=1) with A, B, and C having the same SEW. (b) Double-widening case (W=2) with A and B at half the SEW of C, with two narrow input elements packed into each SEW-wide storage position.
 image::png/ime-geometry.png[width=100%, align=center, alt="Diagram of matrix tile geometry and multiplier configuration parameters."]
 
 The K-dimension of the multiplication (shared inner dimension of A and B^T^) is determined by λ from `vtype`, scaled by a per-instruction widening factor W and further multiplied by LMUL:
 
     K_eff = λ × W × LMUL
 
-A and B tiles have elements of width SEW÷W; the accumulator C has elements of width SEW (see table below).
+A and B tiles have elements of width `SEW`÷`W`; the accumulator C has elements of width `SEW` (see table below).
 When operating on integer data types, the signedness of each input is controlled independently by `altfmt_A` and `altfmt_B` (0 = signed, 1 = unsigned; see <<integrated-matrix-altfmt-inputs>>); the accumulator C is always signed.
 Integer accumulation wraps modulo 2^SEW^.
 
-The tile dimensions follow from the widening and LMUL settings:
+<<tile-dimensions>> show how the tile dimensions follow from the widening, λ, and LMUL settings.
 
-    L_A    = LMUL × VLEN ÷ (SEW ÷ W)   (total A or B tile elements across LMUL registers)
-    K_eff  = λ × W × LMUL
-    M = N  = L_A ÷ K_eff               (rows = columns of the square accumulator tile)
+[#tile-dimensions]
+.Tile dimensions K~eff~, M, and N derived from the settings.
+[cols="1,1,1", options="header"]
+|===
+|Parameter  | Value                | description
+|K~eff~     | λ × W × LMUL         | number of input elements along the inner (K) dimension
+|M = N      | (VLEN ÷ SEW) ÷ λ     | rows = columns of the square accumulator tile
+|===
 
-The accumulator register group has cardinality MUL_C = VLEN ÷ (SEW × λ²), independent of both W and LMUL.
+The accumulator register group has effective group multiplier `EMUL_C` = `VLEN` ÷ (`SEW` × `λ`²), independent of both `W` and `LMUL`.
 
-The elements in the vector registers are contiguous in the λ direction, as depicted in
-<<ime-geometry-fig>>. Tile A and C elements are sorted in row-major order while tile B^T^
-elements are sorted in column-major order. This choice allows the implementation of the
-matrix tile multiplication as inner product (e.g., a systolic array) or outer product and
+The elements in each vector register are contiguous in the inner (`K`) direction, as depicted in
+<<ime-geometry-fig>>. Tiles A, B, and C elements are stored in row-major order.
+Since the computation performed by the instructions is C ← A × B^T^ + C, it may be desirable to store matrix B in memory in column-major order so that the effective computation becomes C ← A × B + C
+This choice allows the implementation of the
+matrix tile multiplication as inner product or outer product and
 simplifies the implementation of high-rank updates based on outer products.
 
 [#ime-tile-lmul-fig]
@@ -98,7 +104,7 @@ image::png/ime-tile-lmul_2_4.png[width=100%, align=center, alt="Diagram showing 
 LMUL scales the tile along the K dimension only, increasing the effective K dimension of the tile by a factor of LMUL. The blue arrows indicate the contiguous elements in the vector register groups that form the tiles in the ordering of element-wise 1D vector operations.
 
 
-=== Subextensions of Zvvm
+=== Extensions in Zvvm
 
 ==== Naming conventions
 
@@ -109,7 +115,7 @@ The Zvvm family uses two levels of naming.
 `Zvvmtls` (tile load/store), and `Zvvmttls` (transposing tile load/store).
 Implementing a family-level extension requires support for all instructions in that family.
 
-**Individual subextensions** identify a specific input/output type combination and follow
+**Individual extensions** identify a specific input/output type combination and follow
 the scheme `Zvv` + _input-type_ + _output-type_ + `mm`, where the output-type is omitted
 when it is the same as the input type.
 The type tokens are:
@@ -124,13 +130,13 @@ FP32 accumulator), `Zvvxofp8fp16mm` (MXFP8 inputs with BS=32, FP16 accumulator).
 When the accumulator type matches the input type (e.g., `Zvvi16mm`, `Zvvfp32mm`),
 the output token is dropped.
 
-==== Computational subextensions
+==== Computational extensions
 
-Table <<tbl-subextensions>> lists the computational subextensions in the Zvvm family which are not related to microscaling.
-The subextensions specific to microscaling are listed separately in <<mx-subextensions-section>>.
+Table <<tbl-subextensions>> lists the computational extensions in the Zvvm family which are not related to microscaling.
+The extensions specific to microscaling are listed separately in <<mx-subextensions-section>>.
 
 [#tbl-subextensions]
-.Computational subextensions in the Zvvm family of Integrated Matrix extensions.
+.Computational extensions in the Zvvm family of Integrated Matrix extensions.
 [cols="1,1,4,2", options="header"]
 |===
 |Extension       | Dependencies | Multiplicand Types           | Accumulator Type
@@ -169,19 +175,19 @@ The subextensions specific to microscaling are listed separately in <<mx-subexte
 
 === Specialized Extensions
 
-The computational subextensions in Table <<tbl-subextensions>> can be combined in many ways,
+The computational extensions in Table <<tbl-subextensions>> can be combined in many ways,
 depending on the target workload and implementation goals.
 This section defines specialized Zvvm extensions as useful and interoperable
-bundles of existing computational subextensions for major application domains.
+bundles of existing computational extensions for major application domains.
 
-Each specialized extension is defined solely by the set of computational subextensions it includes.
+Each specialized extension is defined solely by the set of computational extensions it includes.
 These specialized extensions do not define new instructions or new arithmetic semantics beyond those already
-defined by the included subextensions.
-Implementations are free to support other combinations of subextensions.
+defined by the included extensions.
+Implementations are free to support other combinations of extensions.
 
 ==== Zvvhpc
 
-The `Zvvhpc` extension is a specialized bundle of Zvvm computational subextensions
+The `Zvvhpc` extension is a specialized bundle of Zvvm computational extensions
 targeting high-performance computing workloads.
 It emphasizes support for the floating-point data types most commonly used in
 scientific computing, numerical linear algebra, simulation, and technical computing.
@@ -202,12 +208,12 @@ The `Zvvhpc` extension includes:
 * `Zvvbf16fp32mm`
 * `Zvvbf16fp64mm`
 
-Implementations targeting `Zvvhpc` may also support additional integer subextensions,
-but low-precision OFP4/OFP8 and microscaling-oriented subextensions are not the primary focus of this extension.
+Implementations targeting `Zvvhpc` may also support additional integer extensions,
+but low-precision OFP4/OFP8 and microscaling-oriented extensions are not the primary focus of this extension.
 
 ==== Zvvaimlfp
 
-The `Zvvaimlfp` extension is a specialized bundle of Zvvm computational subextensions
+The `Zvvaimlfp` extension is a specialized bundle of Zvvm computational extensions
 targeting artificial-intelligence and machine-learning workloads based on floating-point
 and mixed-precision arithmetic.
 It emphasizes support for lower-precision floating-point formats, widening accumulation,
@@ -218,7 +224,7 @@ The `Zvvaimlfp` extension is characterized by support for:
 * OFP8 matrix multiplication and accumulation
 * IEEE binary16 and BFloat16 matrix multiplication and accumulation
 * OFP8, IEEE binary16, and BFloat16 inputs with accumulation into wider formats such as IEEE binary16 and IEEE binary32
-* Microscaling-oriented floating-point data types and associated computational subextensions
+* Microscaling-oriented floating-point data types and associated computational extensions
 
 The `Zvvaimlfp` extension includes:
 
@@ -231,13 +237,13 @@ The `Zvvaimlfp` extension includes:
 * `Zvvbf16mm`
 * `Zvvbf16fp32mm`
 
-Implementations targeting `Zvvaimlfp` may also support OFP4-derived widening subextensions
+Implementations targeting `Zvvaimlfp` may also support OFP4-derived widening extensions
 such as `Zvvofp4ofp8mm`, `Zvvofp4fp16mm`, `Zvvofp4bf16mm`, and `Zvvofp4fp32mm`,
-as well as microscaling-specific subextensions listed in <<mx-subextensions-section>>.
+as well as microscaling-specific extensions listed in <<mx-subextensions-section>>.
 
 ==== Zvvaimlint
 
-The `Zvvaimlint` extension is a specialized bundle of Zvvm computational subextensions
+The `Zvvaimlint` extension is a specialized bundle of Zvvm computational extensions
 targeting artificial-intelligence and machine-learning workloads based on quantized integer arithmetic.
 It emphasizes support for low-precision integer inputs with accumulation into wider integer formats,
 as commonly used in quantized inference.
@@ -260,10 +266,10 @@ The `Zvvaimlint` extension includes:
 * `Zvvi4i32mm`
 
 Implementations targeting `Zvvaimlint` may also support wider integer accumulation
-subextensions such as `Zvvi8i64mm`, `Zvvi16i64mm`, and `Zvvi32i64mm`, depending on workload requirements.
+extensions such as `Zvvi8i64mm`, `Zvvi16i64mm`, and `Zvvi32i64mm`, depending on workload requirements.
 
 NOTE: The `Zvvhpc`, `Zvvaimlfp`, and `Zvvaimlint` extensions are not mutually exclusive.
-A single implementation may support subextensions from more than one specialized extension.
+A single implementation may support extensions from more than one specialized extension.
 
 === New fields in the Vector Type (`vtype`) Register
 
@@ -434,15 +440,15 @@ input data in memory must pack adjacent elements within each byte
 accordingly.
 
 [#zvvmm,reftext=Matrix-multiplication instructions (integer)]
-=== Zvvmm: Extension for matrix multiplication on vector registers interpreted as 2D integer matrix tiles
+=== Zvvmm: Extension for matrix multiplication on vector register groups interpreted as 2D integer matrix tiles
 
 The `Zvvmm` family of extensions provides instructions that perform matrix multiply-accumulate on integer data, computing C ← C + A × B^T^, where A, B, and C are matrix tiles held in the vector register file.
 
 The following table lists the integer matrix tile multiplication instructions. The arguments are:
 
 * `vd`: Destination vector register group containing the C matrix tile.
-* `vs1`: Source vector register (group) containing the A matrix tile.
-* `vs2`: Source vector register (group) containing the B^T^ matrix tile.
+* `vs1`: Source vector register group containing the A matrix tile.
+* `vs2`: Source vector register group containing the B^T^ matrix tile.
 
 [cols="3,1,1,1", options="header", width="70%"]
 |===
@@ -477,7 +483,7 @@ For integer multiply-accumulate instructions, all intermediate results are reduc
 Because modular addition is both associative and commutative, the final result is uniquely defined regardless of the accumulation order or grouping factor.
 
 [#zvvfmm,reftext=Matrix-multiplication instructions (floating-point)]
-=== Zvvfmm: Extension for matrix multiplication on vector registers interpreted as 2D floating-point matrix tiles
+=== Zvvfmm: Extension for matrix multiplication on vector register groups interpreted as 2D floating-point matrix tiles
 
 The `Zvvfmm` family of extensions provides floating-point matrix multiply-accumulate instructions, computing C ← C + A × B^T^.
 A, B, and C are matrix tiles held in the vector register file.
@@ -485,9 +491,9 @@ A, B, and C are matrix tiles held in the vector register file.
 The following table lists the floating-point matrix tile multiplication instructions. The arguments are:
 
 * `vd`: Destination vector register group containing the C matrix tile.
-* `vs1`: Source vector register (group) containing the A matrix tile.
-* `vs2`: Source vector register (group) containing the B^T^ matrix tile.
-* `v0.scale`: Block scales for A and B^T^ operands in MX-scaling mode.
+* `vs1`: Source vector register group containing the A matrix tile.
+* `vs2`: Source vector register group containing the B matrix tile.
+* `v0.scale`: Block scales for A and B operands in MX-scaling mode.
 
 [cols="4,1,1,1,4", options="header"]
 |===
@@ -515,7 +521,7 @@ The floating-point format of each operand tile is controlled by fields in `vtype
 
 * `altfmt_A` and `altfmt_B` select the FP format for A and B input elements, interpreted in conjunction with the input element width SEW÷W (see <<integrated-matrix-altfmt-inputs>>).
   The A and B input tiles may use different formats (`altfmt_A` ≠ `altfmt_B`);
-  see <<mixed-format-inputs>> for subextension requirements.
+  see <<mixed-format-inputs>> for extension requirements.
 * `altfmt` (as defined by Zvfbfa) selects the FP format for the C accumulator elements, interpreted in conjunction with SEW (see <<_alternate_floating_point_format_for_the_output_altfmt>>).
 
 [#mixed-format-inputs]
@@ -571,7 +577,7 @@ Final accumulation into the C accumulator format uses the dynamic rounding mode 
 Any intermediate grouping, partial-sum formation, and optional rounding of partial sums follow <<arithmetic-considerations>>.
 Floating-point exception flags accumulate in `fflags`.
 
-The subextension requirements for mixed-format operation depend on the input
+The extension requirements for mixed-format operation depend on the input
 element width:
 
 ===== Sub-word inputs (OFP4, OFP8)
@@ -581,7 +587,7 @@ The encoding `altfmt_A` = 1 or `altfmt_B` = 1 is _reserved_ for 4-bit inputs.
 
 Likewise, for 8-bit inputs, `altfmt_A` and `altfmt_B` independently select
 E4M3 or E5M2.  All four combinations — including mixed E4M3 × E5M2 — are
-covered by the same OFP8 subextension for the given output format and are
+covered by the same OFP8 extension for the given output format and are
 permitted on all four instructions (`vfmmacc.vv`, `vfwmmacc.vv`,
 `vfqmmacc.vv`, `vf8wmmacc.vv`).  Each A × B product is computed at sufficient internal
 precision and rounded once to the C accumulator format; see
@@ -590,7 +596,7 @@ precision and rounded once to the C accumulator format; see
 ===== 16-bit inputs (IEEE binary16, BFloat16)
 
 For 16-bit inputs, `altfmt_A` and `altfmt_B` independently select IEEE
-binary16 or BFloat16.  When both are the same, a single subextension
+binary16 or BFloat16.  When both are the same, a single extension
 suffices (Zvvfp16mm* for IEEE binary16, Zvvbf16mm* for BFloat16), and all
 three instructions (`vfmmacc.vv`, `vfwmmacc.vv`, `vfqmmacc.vv`) are
 available.
@@ -603,16 +609,16 @@ extension is required.  Each A × B product is computed at sufficient
 internal precision and rounded once to the C accumulator format;
 see <<mixed-format-inputs>>.
 
-For the mixed cases, _both_ the IEEE binary16 and BFloat16 subextensions
+For the mixed cases, _both_ the IEEE binary16 and BFloat16 extensions
 for the same instruction and output format are required.  The instruction
-is legal only when both subextensions are present; if either is missing,
+is legal only when both extensions are present; if either is missing,
 the instruction raises an illegal-instruction exception.
 
-.Subextension requirements for mixed FP16/BF16 inputs
+.Extension requirements for mixed FP16/BF16 inputs
 [cols="2,2,3"]
 [%autowidth,float="center",align="center",options="header"]
 |===
-| Instruction | Output format | Required subextensions (both must be present)
+| Instruction | Output format | Required extensions (both must be present)
 
 | vfmmacc.vv  | FP16 (SEW=16)          | Zvvfp16mm AND Zvvbf16mm
 | vfmmacc.vv  | BF16 (SEW=16)          | Zvvfp16mm AND Zvvbf16mm
@@ -620,7 +626,7 @@ the instruction raises an illegal-instruction exception.
 | vfqmmacc.vv| FP64 (SEW=64)          | Zvvfp16fp64mm AND Zvvbf16fp64mm
 |===
 
-If the required subextensions are not both present, the instruction raises an illegal-instruction exception.
+If the required extensions are not both present, the instruction raises an illegal-instruction exception.
 
 ===== 32-bit and wider inputs
 
@@ -632,7 +638,7 @@ Final accumulation into the C accumulator format uses the dynamic rounding mode 
 Any intermediate grouping, partial-sum formation, and optional rounding of partial sums follow <<arithmetic-considerations>>.
 Floating-point exception flags are accumulated into `fflags`.
 
-The K-dimension, tile-dimension formulae, MUL_C, and instruction-to-widening-factor mapping are the same as for the integer family (see <<zvvmm>>); the floating-point mnemonics are `vfmmacc.vv` (W=1), `vfwmmacc.vv` (W=2), `vfqmmacc.vv` (W=4), and `vf8wmmacc.vv` (W=8).
+The K-dimension, tile-dimension formulae, EMUL_C, and instruction-to-widening-factor mapping are the same as for the integer family (see <<zvvmm>>); the floating-point mnemonics are `vfmmacc.vv` (W=1), `vfwmmacc.vv` (W=2), `vfqmmacc.vv` (W=4), and `vf8wmmacc.vv` (W=8).
 
 As with the integer multiply-accumulate instructions, vector masking is not
 supported.  When `vm=0`, the instruction does not apply a vector mask;
@@ -650,20 +656,20 @@ Each multiply-accumulate instruction computes, for every output element stem:[C_
 
 stem:[C_{i,j} \leftarrow C_{i,j} + \sum_{k=0}^{K_{\text{eff}}-1} A_{i,k} \times B_{k,j}]
 
-where K_eff = λ × W × LMUL.
-This section specifies how the K_eff product terms may be grouped and when intermediate rounding is permitted.
+where K~eff~ = `λ` × `W` × `LMUL`.
+This section specifies how the K~eff~ product terms may be grouped and when intermediate rounding is permitted.
 
 ===== Sub-dot-products
 
-When `W > 1`, the `W` narrow input-element pairs packed within one accumulator-width (`SEW`-bit) position form a natural computational unit called a _sub-dot-product_.
+When `W` > `1`, the `W` narrow input-element pairs packed within one accumulator-width (`SEW`-bit) position form a natural computational unit called a _sub-dot-product_.
 The `W` multiplications of (`SEW÷W`)-bit elements are performed and their products summed.
 
-Each product of two (SEW÷W)-bit values is _exact_ at SEW precision: the significand has at most 2 × p~input~ − 1 bits, which fits in the wider SEW format.
+Each product of two (`SEW`÷`W`)-bit values is _exact_ at `SEW` precision: the significand has at most 2 × p~input~ − 1 bits, which fits in the wider `SEW` format.
 The sub-dot-product can therefore be computed with very little loss at `SEW` or wider precision.
 
-There are K_eff ÷ W = λ × LMUL sub-dot-products per output element.
+There are K~eff~ ÷ `W` = `λ` × `LMUL` sub-dot-products per output element.
 
-When `W = 1`, each product of two `SEW`-bit values is exact at `2 × SEW` bits; a sub-dot-product consists of a single product term.
+When `W` = `1`, each product of two `SEW`-bit values is exact at `2` × `SEW` bits; a sub-dot-product consists of a single product term.
 
 ===== Accumulation and rounding model (floating-point)
 
@@ -672,19 +678,20 @@ Therefore, it is enough to specify the result of the computation
 
 stem:[C_{i,j} \leftarrow C_{i,j} + \sum_{k=0}^{\lambda W - 1} A_{i,k} \times B_{k,j}]
 
-An implementation partitions the λ sub-dot-products for each output element into consecutive groups of `G` sub-dot-products.
+An implementation partitions the `λ` sub-dot-products for each output element into consecutive groups of `G` sub-dot-products.
 The implementation-defined grouping factor `G` is applied separately within each `LMUL=1` step, so that a group shall not cross the boundary between two consecutive `LMUL=1` steps.
+The number of groups in the computation of stem:[C_{i,j}] above is `λ` ÷ `G`.
 
 `G` must satisfy:
 
 * `G` is a power of two;
 * 1 ≤ `G` ≤ λ.
 
-* Within each group, the `G` sub-dot-products jointly define a dot product of two vectors with `G × W` elements. This group dot product is reduced into a partial sum `S` according to an implementation-defined parameter `psm`.
+* Within each group, the `G` sub-dot-products jointly define a dot product of two vectors with `G × W` elements. This group dot product is reduced into a partial sum `S` according to an implementation-defined parameter `psm` ∈ {`0`, `1`}.
 
 ** If `psm=0`, the partial sum `S` is formed using exact computation: the contributing products and sums are computed in sufficiently precise internal form, without rounding to the C accumulator format, until the next rounding step defined by this specification.
 
-** If `psm=1`, the exact products belonging to the group are accumulated in a bulk-normalized representation according to the RVBNA Algorithm, or in an equivalent representation producing the same numerical result.
+** If `psm=1`, the exact products belonging to the group are accumulated in a bulk-normalized representation according to the https://github.com/riscv/riscv-isa-manual/blob/03c4abb8b4b276938c3fd96e3eb53c5840e3c24b/src/zvdota.adoc#risc-v-bulk-normalization-algorithm[RVBNA Algorithm], or in an equivalent representation producing the same numerical result. (The details of how the various parameters of RVBNA are set are described below.)
 
 * Once the partial sum `S` is computed, and before it is accumulated into the result C, it is treated according to an implementation-defined parameter `rnd`.
 
@@ -696,10 +703,10 @@ The implementation-defined grouping factor `G` is applied separately within each
 
 * After each group, the rounded partial sum `S` is accumulated into the running value of stem:[C_{i,j}] by computing
 
-stem:[C_{i,j} \leftarrow round_{frm}(C_{i,j} + S)].
+stem:[C_{i,j} \leftarrow \text{round}_{\text{frm}}(C_{i,j} + S)].
 
 The accumulation rounding is performed with the rounding mode from `frm`.
-If `rnd=xct`, the partial sum `S` is retained in sufficient internal precision so that the only rounding step in the update of stem:[C_{i,j}] by that group is the final stem:[round_{frm}(C_{i,j} + S)].
+If `rnd=xct`, the partial sum `S` is retained in sufficient internal precision so that the only rounding step in the update of stem:[C_{i,j}] by that group is the final stem:[\text{round}_{\text{frm}}(C_{i,j} + S)].
 
 Supported values of `G`, `psm`, and `rnd` by an implementation may depend on `SEW`, `W`, and `lambda`.
 An implementation must disclose all supported combinations by publishing a table of its mappings from (`SEW`, `W`, `lambda`) to (`G`, `psm`, `rnd`).
@@ -707,8 +714,27 @@ The floating-point result of a matrix multiply-accumulate instruction is fully d
 
 The number of rounding operations per output element of C is (λ × `LMUL`) ÷ `G` if no rounding is applied to the reduced partial sum before accumulation, and 2 × (λ × `LMUL`) ÷ `G` if the reduced partial sum is rounded before accumulation into the running value of C.
 
+The RISC-V Bulk Normalization Algorithm (RVBNA) is characterized by multiple parameters:
+
+- `p`: the size of each factor's significand (significand product is `2p`-bit wide, signed product is `2p+1`-bit wide)
+- `e`: the size of each factor's biased exponent (the bias is `2^(e-1) - 1`)
+- `q`: the size of the result's significand
+- `f`: the size of the result's biased exponent (the bias is `2^(f-1) - 1`)
+- `n`: the number of products accumulated
+
+(The algorithm specifies two other parameters, `o` and `g`, but those are derived from the parameters `n`.)
+For all `Zvvfmm` extensions, `n` = `G × W`.
+Meanwhile, `q` and `f` are readily derived from the output type. For example, if the output type is single-precision IEEE floating-point (binary32), then `f` = 8 and `q` = 24 (including the implied `1`).
+Similarly, `p` and `e` are readily derived from the input types. For example, if the input type is half-precision IEEE floating-point (binary16), then `e` = 5 and `p` = 11 (including the implied `1`).
+
+The `Zvvfmm` extensions specify their own parameter `rnd` to control rounding of the dot-product before accumulation.
+Therefore, the final round-to-odd step in RVBNA is only used if `rnd=rto`. Otherwise, the appropriate rounding according to `rnd` is used.
+It is expected that most implementations that choose `psm=1` for a (`SEW`, `W`, `lambda`) combination will also choose `rnd=rto` for the same combination. 
+
 [NOTE]
 ====
+RVBNA is being augmented to handle asymmetric (mixed) data types. The `Zvvfmm` extensions will adopt that augmented definition.
+
 A Zvvm implementation can produce the exact same results as the analogous Zvtm implementation when operating on 16- and 8-bit inputs by setting `psm=1`, `rnd=rto`, and choosing a suitable architectural value of `G`: `G=2` for 16-bit inputs with 32-bit outputs, and `G=1` for 8-bit inputs with 32-bit outputs.
 For input element widths of 32 bits or greater, compatibility with the analogous Zvtm instruction is obtained with `G=1`, `psm=0`, and `rnd=frm` so that each group contains a single product and the partial sum `S` is that product rounded according to `frm`.
 
@@ -1085,15 +1111,15 @@ each scale array with the correct tile stride, then `vzip.vv` pairs them:
 |===
 ====
 
-===== Microscaling subextensions
+===== Microscaling extensions
 
-Microscaling subextensions that add block-scaled variants of the narrow
+Microscaling extensions that add block-scaled variants of the narrow
 input formats (OFP4, OFP8, Int4, Int8) are listed separately in
 <<tbl-mx-subextensions>>.
-All currently defined microscaling subextensions use the E8M0 scale format.
+All currently defined microscaling extensions use the E8M0 scale format.
 
 [#zvvmtls,reftext=Load/store instructions for matrix tiles]
-=== Zvvmtls: Extension for loading and storing vector registers interpreted as 2D matrix tiles
+=== Zvvmtls: Extension for loading and storing vector register groups interpreted as 2D matrix tiles
 
 The `Zvvmtls` extension provides instructions that transfer 2D matrix tiles between memory and the vector register file without requiring a separate repacking step.
 Matrix data in memory is typically stored as a large 2D array in row-major or column-major order with a leading dimension that may exceed the tile width.
@@ -1212,7 +1238,7 @@ Order preserving tile load/store with LMUL > 1 offers optimization opportunities
 image::png/ime-vmtls-lmul.png[align="center", width="90%"]
 
 [#zvvmttls,reftext=Transposing load/store instructions for matrix tiles]
-=== Zvvmttls: Extension for loading and storing vector registers interpreted as transposed 2D matrix tiles
+=== Zvvmttls: Extension for loading and storing vector register groups interpreted as transposed 2D matrix tiles
 
 The `Zvvmttls` extension provides instructions that transfer transposed 2D matrix tiles between memory and the vector register file without requiring a separate repacking step.
 Memory layout and tile geometry for `Zvvmttls` follows those established for the `Zvvmtls` extension.
@@ -1263,7 +1289,7 @@ For each element index `i` in the body `[vstart, VL)` where the mask is enabled:
 
     vmtts.v vs3, (rs1), rs2 [, Lλ] [, vm]
 
-Stores a 2D matrix tile from vector registers to memory, applying the inverse transposition of `vmttl.v`.
+Stores a 2D matrix tile from vector register groups to memory, applying the inverse transposition of `vmttl.v`.
 `rs1` holds the matrix base address; `rs2` holds the leading dimension `LD` in elements.
 
 
@@ -1287,7 +1313,7 @@ The tile dimensions are fully determined by the current vector configuration:
     K_eff      = λ × W × LMUL           (shared K-dimension step)
     N_tile     = VL / (λ × LMUL)        (active columns of B and C; set via vsetvl)
     N_tile_max = M_tile                 (maximum columns when VL = VL_max)
-    MUL_C      = VLEN / (SEW × λ²)      (C accumulator register group size)
+    EMUL_C      = VLEN / (SEW × λ²)      (C accumulator register group size)
 
 `M_tile` is fixed by the hardware (VLEN) and the chosen SEW and λ; it cannot be changed by VL.
 `N_tile` is controlled by the programmer through VL; use `vsetvl` to select the largest `N_tile` that fits the remaining columns.
@@ -1354,7 +1380,7 @@ for (j = 0; j < N; j += N_tile) {
 
     for (i = 0; i < M; i += M_tile) {
 
-        // Zero the C tile accumulator (MUL_C registers starting at v8).
+        // Zero the C tile accumulator (EMUL_C registers starting at v8).
         vsetvl(K_eff * M_tile);   // VL = vl_max, needed to touch all elements
         vmv.v.i v8, 0;
 
@@ -1422,9 +1448,9 @@ The naming convention and type system extend the RISC-V V Intrinsics API
   intrinsics: `i8m1` → `vint8m1_t`, `f32m2` → `vfloat32m2_t`,
   `u16m4` → `vuint16m4_t`, etc.
   For multiply-accumulate intrinsics the register-group multiplier encoded in
-  the type-suffix is MUL_C (= VLEN ÷ (SEW × λ²)), which is determined by the
+  the type-suffix is EMUL_C (= VLEN ÷ (SEW × λ²)), which is determined by the
   implementation's VLEN and is _independent of LMUL_.
-* When MUL_C ≠ LMUL for a multiply-accumulate intrinsic, a `_lm{N}` qualifier
+* When EMUL_C ≠ LMUL for a multiply-accumulate intrinsic, a `_lm{N}` qualifier
   (N ∈ {1, 2, 4, 8}) is appended to the intrinsic name to specify LMUL.
   The `_lm1` qualifier may be omitted; LMUL=1 is the default when no qualifier
   is present.
@@ -1465,7 +1491,7 @@ no input-type suffix, and no `_su` / `_us` sign suffix is needed in user code.
 
 The types of the arguments fully determine every variant:
 
-* `vd` type → accumulator SEW and MUL_C.
+* `vd` type → accumulator SEW and EMUL_C.
 * `vs1` / `vs2` types → input EEW and LMUL; for integer operations, signed
   vs. unsigned; for floating-point operations, the FP format (e.g., FP16
   vs. BF16 for `altfmt`).
@@ -1519,7 +1545,7 @@ These intrinsics are the supported way for software to discover the
 implementation's tile geometry without parsing CSR fields directly, and are
 intended for use in the runtime-dispatch pattern described in
 <<_vlen_portable_code>>: software queries lambda (and VLEN, if needed),
-then selects an appropriate code path among several specialised by MUL_C.
+then selects an appropriate code path among several specialised by EMUL_C.
 
 NOTE: `__riscv_ime_lambda()` returns a single representative lambda value
 for the implementation.  Implementations may support multiple lambda values
@@ -1666,42 +1692,42 @@ void      __riscv_vmts_v_i8m1_L4_m (vbool8_t mask, int8_t *base, size_t ld, vint
 
 ===== Integer matrix multiply-accumulate (Zvvmm)
 
-The accumulator register group C uses MUL_C = VLEN ÷ (SEW × λ²) registers.
-MUL_C is determined by the implementation's VLEN and is independent of LMUL.
+The accumulator register group C uses EMUL_C = VLEN ÷ (SEW × λ²) registers.
+EMUL_C is determined by the implementation's VLEN and is independent of LMUL.
 The type-suffix in the intrinsic name always encodes the accumulator C type
-(including its MUL_C); A and B use `vs1` and `vs2` argument types that reflect
+(including its EMUL_C); A and B use `vs1` and `vs2` argument types that reflect
 LMUL directly.
 The tables below list representative prototypes for VLEN=256 and λ=2 (giving
-MUL_C = VLEN ÷ (SEW × 4)); all valid (MUL_C, LMUL) combinations are available with
+EMUL_C = VLEN ÷ (SEW × 4)); all valid (EMUL_C, LMUL) combinations are available with
 the appropriate `_lm{N}` qualifier.
 
 For `vmmacc.vv` (no widening, W=1), accumulator and both input tiles use SEW:
 
 [source,c]
 --
-/* SEW=8,  VLEN=256, λ=2: MUL_C=8.  LMUL=1 (default): */
+/* SEW=8,  VLEN=256, λ=2: EMUL_C=8.  LMUL=1 (default): */
 vint8m8_t  __riscv_vmmacc_vv_i8m8    (vint8m8_t  vd, vint8m1_t  vs1, vint8m1_t  vs2, size_t vl);
-/* SEW=16, VLEN=256, λ=2: MUL_C=4.  LMUL=1 (default): */
+/* SEW=16, VLEN=256, λ=2: EMUL_C=4.  LMUL=1 (default): */
 vint16m4_t __riscv_vmmacc_vv_i16m4   (vint16m4_t vd, vint16m1_t vs1, vint16m1_t vs2, size_t vl);
-/* SEW=32, VLEN=256, λ=2: MUL_C=2.  LMUL=1 (default): */
+/* SEW=32, VLEN=256, λ=2: EMUL_C=2.  LMUL=1 (default): */
 vint32m2_t __riscv_vmmacc_vv_i32m2   (vint32m2_t vd, vint32m1_t vs1, vint32m1_t vs2, size_t vl);
-/* Same MUL_C=2, LMUL=2 (_lm2 qualifier): */
+/* Same EMUL_C=2, LMUL=2 (_lm2 qualifier): */
 vint32m2_t __riscv_vmmacc_vv_i32m2_lm2(vint32m2_t vd, vint32m2_t vs1, vint32m2_t vs2, size_t vl);
-/* SEW=64, VLEN=256, λ=2: MUL_C=1.  LMUL=1 (default, MUL_C=LMUL): */
+/* SEW=64, VLEN=256, λ=2: EMUL_C=1.  LMUL=1 (default, EMUL_C=LMUL): */
 vint64m1_t __riscv_vmmacc_vv_i64m1   (vint64m1_t vd, vint64m1_t vs1, vint64m1_t vs2, size_t vl);
-/* Unsigned variants: __riscv_vmmacc_vv_u{sew}m{MUL_C}[_lm{N}], accepting vuint types. */
+/* Unsigned variants: __riscv_vmmacc_vv_u{sew}m{EMUL_C}[_lm{N}], accepting vuint types. */
 --
 
 For `vwmmacc.vv` (W=2), A and B use SEW/2 elements; the accumulator uses SEW.
-The type-suffix on `vd` determines the accumulator (C) SEW and MUL_C:
+The type-suffix on `vd` determines the accumulator (C) SEW and EMUL_C:
 
 [source,c]
 --
-/* SEW=16 accum / EEW=8 inputs,  VLEN=256, λ=2: MUL_C=4.  LMUL=1 (default): */
+/* SEW=16 accum / EEW=8 inputs,  VLEN=256, λ=2: EMUL_C=4.  LMUL=1 (default): */
 vint16m4_t __riscv_vwmmacc_vv_i16m4   (vint16m4_t vd, vint8m1_t  vs1, vint8m1_t  vs2, size_t vl);
-/* SEW=32 accum / EEW=16 inputs, VLEN=256, λ=2: MUL_C=2.  LMUL=1 (default): */
+/* SEW=32 accum / EEW=16 inputs, VLEN=256, λ=2: EMUL_C=2.  LMUL=1 (default): */
 vint32m2_t __riscv_vwmmacc_vv_i32m2   (vint32m2_t vd, vint16m1_t vs1, vint16m1_t vs2, size_t vl);
-/* SEW=64 accum / EEW=32 inputs, VLEN=256, λ=2: MUL_C=1.  LMUL=1 (default): */
+/* SEW=64 accum / EEW=32 inputs, VLEN=256, λ=2: EMUL_C=1.  LMUL=1 (default): */
 vint64m1_t __riscv_vwmmacc_vv_i64m1   (vint64m1_t vd, vint32m1_t vs1, vint32m1_t vs2, size_t vl);
 --
 
@@ -1709,9 +1735,9 @@ For `vqmmacc.vv` (W=4), A and B use SEW/4 elements:
 
 [source,c]
 --
-/* SEW=32 accum / EEW=8 inputs,  VLEN=256, λ=2: MUL_C=2.  LMUL=1 (default): */
+/* SEW=32 accum / EEW=8 inputs,  VLEN=256, λ=2: EMUL_C=2.  LMUL=1 (default): */
 vint32m2_t __riscv_vqmmacc_vv_i32m2  (vint32m2_t vd, vint8m1_t  vs1, vint8m1_t  vs2, size_t vl);
-/* SEW=64 accum / EEW=16 inputs, VLEN=256, λ=2: MUL_C=1.  LMUL=1 (default): */
+/* SEW=64 accum / EEW=16 inputs, VLEN=256, λ=2: EMUL_C=1.  LMUL=1 (default): */
 vint64m1_t __riscv_vqmmacc_vv_i64m1  (vint64m1_t vd, vint16m1_t vs1, vint16m1_t vs2, size_t vl);
 --
 
@@ -1723,7 +1749,7 @@ For `vwmmacc.vv` (W=2) with SEW=8, the inputs are 4-bit integers (Zvvi4i8mm):
 
 [source,c]
 --
-/* Zvvi4i8mm: Int4→Int8, SEW=8, VLEN=256, λ=2: MUL_C=8.  LMUL=1 (default): */
+/* Zvvi4i8mm: Int4→Int8, SEW=8, VLEN=256, λ=2: EMUL_C=8.  LMUL=1 (default): */
 vint8m8_t  __riscv_vwmmacc_vv_i8m8_i4m1 (vint8m8_t  vd,
                                            vint4m1_t vs1, vint4m1_t vs2, size_t vl);
 --
@@ -1732,12 +1758,12 @@ For `vqmmacc.vv` (W=4) with SEW=16, the inputs are 4-bit integers (Zvvi4i16mm):
 
 [source,c]
 --
-/* Zvvi4i16mm: Int4→Int16, SEW=16, VLEN=256, λ=2: MUL_C=4.  LMUL=1 (default): */
+/* Zvvi4i16mm: Int4→Int16, SEW=16, VLEN=256, λ=2: EMUL_C=4.  LMUL=1 (default): */
 vint16m4_t __riscv_vqmmacc_vv_i16m4_i4m1(vint16m4_t vd,
                                             vint4m1_t vs1, vint4m1_t vs2, size_t vl);
 --
 
-The following subextensions require an effective widening ratio of 8 (W=8)
+The following extensions require an effective widening ratio of 8 (W=8)
 and are served by the `v8wmmacc.vv` (integer) and `vf8wmmacc.vv`
 (floating-point) instructions:
 
@@ -1755,10 +1781,10 @@ on the intrinsic name:
 
 [source,c]
 --
-/* vwmmacc.vv signed A × unsigned B; SEW=32, VLEN=256, λ=2: MUL_C=2, LMUL=1 */
+/* vwmmacc.vv signed A × unsigned B; SEW=32, VLEN=256, λ=2: EMUL_C=2, LMUL=1 */
 vint32m2_t __riscv_vwmmacc_vv_i32m2_su(vint32m2_t vd, vint16m1_t  vs1,
                                         vuint16m1_t vs2, size_t vl);
-/* vwmmacc.vv unsigned A × signed B; SEW=32, VLEN=256, λ=2: MUL_C=2, LMUL=1 */
+/* vwmmacc.vv unsigned A × signed B; SEW=32, VLEN=256, λ=2: EMUL_C=2, LMUL=1 */
 vint32m2_t __riscv_vwmmacc_vv_i32m2_us(vint32m2_t vd, vuint16m1_t vs1,
                                         vint16m1_t  vs2, size_t vl);
 --
@@ -1768,13 +1794,13 @@ in the canonical order `_su|_us` followed by `_lm{N}`:
 
 [source,c]
 --
-/* vmmacc.vv signed A × unsigned B with LMUL=2 (MUL_C=2, LMUL=2): */
+/* vmmacc.vv signed A × unsigned B with LMUL=2 (EMUL_C=2, LMUL=2): */
 vint32m2_t __riscv_vmmacc_vv_i32m2_su_lm2(vint32m2_t vd, vint32m2_t  vs1,
                                             vuint32m2_t vs2, size_t vl);
-/* vwmmacc.vv signed A × unsigned B with LMUL=4 (MUL_C=2, LMUL=4): */
+/* vwmmacc.vv signed A × unsigned B with LMUL=4 (EMUL_C=2, LMUL=4): */
 vint32m2_t __riscv_vwmmacc_vv_i32m2_su_lm4(vint32m2_t vd, vint16m4_t  vs1,
                                               vuint16m4_t vs2, size_t vl);
-/* vqwmmacc.vv unsigned A × signed B with LMUL=8 (MUL_C=2, LMUL=8): */
+/* vqwmmacc.vv unsigned A × signed B with LMUL=8 (EMUL_C=2, LMUL=8): */
 vint32m2_t __riscv_vqwmmacc_vv_i32m2_us_lm8(vint32m2_t vd, vuint8m8_t vs1,
                                                vint8m8_t  vs2, size_t vl);
 --
@@ -1792,22 +1818,22 @@ For `vfmmacc.vv` (no widening, W=1), accumulator and input tiles share SEW:
 
 [source,c]
 --
-/* OFP8 E4M3, VLEN=256, λ=2: MUL_C=8.  LMUL=1 (default): */
+/* OFP8 E4M3, VLEN=256, λ=2: EMUL_C=8.  LMUL=1 (default): */
 vfloat8e4m3m8_t __riscv_vfmmacc_vv_f8e4m3m8(vfloat8e4m3m8_t vd,
                                               vfloat8e4m3m1_t vs1, vfloat8e4m3m1_t vs2, size_t vl);
-/* OFP8 E5M2, VLEN=256, λ=2: MUL_C=8.  LMUL=1 (default): */
+/* OFP8 E5M2, VLEN=256, λ=2: EMUL_C=8.  LMUL=1 (default): */
 vfloat8e5m2m8_t __riscv_vfmmacc_vv_f8e5m2m8(vfloat8e5m2m8_t vd,
                                               vfloat8e5m2m1_t vs1, vfloat8e5m2m1_t vs2, size_t vl);
-/* FP16, VLEN=256, λ=2: MUL_C=4.  LMUL=1 (default): */
+/* FP16, VLEN=256, λ=2: EMUL_C=4.  LMUL=1 (default): */
 vfloat16m4_t __riscv_vfmmacc_vv_f16m4(vfloat16m4_t vd,
                                        vfloat16m1_t vs1, vfloat16m1_t vs2, size_t vl);
-/* BF16, VLEN=256, λ=2: MUL_C=4.  LMUL=1 (default): */
+/* BF16, VLEN=256, λ=2: EMUL_C=4.  LMUL=1 (default): */
 vbfloat16m4_t __riscv_vfmmacc_vv_bf16m4(vbfloat16m4_t vd,
                                           vbfloat16m1_t vs1, vbfloat16m1_t vs2, size_t vl);
-/* FP32, VLEN=256, λ=2: MUL_C=2.  LMUL=1 (default): */
+/* FP32, VLEN=256, λ=2: EMUL_C=2.  LMUL=1 (default): */
 vfloat32m2_t __riscv_vfmmacc_vv_f32m2(vfloat32m2_t vd,
                                        vfloat32m1_t vs1, vfloat32m1_t vs2, size_t vl);
-/* FP64, VLEN=256, λ=2: MUL_C=1.  LMUL=1 (default, MUL_C=LMUL): */
+/* FP64, VLEN=256, λ=2: EMUL_C=1.  LMUL=1 (default, EMUL_C=LMUL): */
 vfloat64m1_t __riscv_vfmmacc_vv_f64m1(vfloat64m1_t vd,
                                        vfloat64m1_t vs1, vfloat64m1_t vs2, size_t vl);
 --
@@ -1816,19 +1842,19 @@ For `vfwmmacc.vv` (W=2), A/B use SEW/2:
 
 [source,c]
 --
-/* OFP8 E4M3 accum / OFP4 E2M1 inputs, VLEN=256, λ=2: MUL_C=8.  LMUL=1 (default): */
+/* OFP8 E4M3 accum / OFP4 E2M1 inputs, VLEN=256, λ=2: EMUL_C=8.  LMUL=1 (default): */
 vfloat8e4m3m8_t __riscv_vfwmmacc_vv_f8e4m3m8_f4e2m1m1(
     vfloat8e4m3m8_t vd, vfloat4e2m1m1_t vs1, vfloat4e2m1m1_t vs2, size_t vl);
-/* FP16 accum / OFP8 E4M3 inputs, VLEN=256, λ=2: MUL_C=4.  LMUL=1 (default): */
+/* FP16 accum / OFP8 E4M3 inputs, VLEN=256, λ=2: EMUL_C=4.  LMUL=1 (default): */
 vfloat16m4_t __riscv_vfwmmacc_vv_f16m4_f8e4m3m1(vfloat16m4_t vd,
                                                   vfloat8e4m3m1_t vs1, vfloat8e4m3m1_t vs2, size_t vl);
-/* BF16 accum / OFP8 E4M3 inputs, VLEN=256, λ=2: MUL_C=4.  LMUL=1 (default): */
+/* BF16 accum / OFP8 E4M3 inputs, VLEN=256, λ=2: EMUL_C=4.  LMUL=1 (default): */
 vbfloat16m4_t __riscv_vfwmmacc_vv_bf16m4_f8e4m3m1(vbfloat16m4_t vd,
                                                     vfloat8e4m3m1_t vs1, vfloat8e4m3m1_t vs2, size_t vl);
-/* FP32 accum / FP16 inputs, VLEN=256, λ=2: MUL_C=2.  LMUL=1 (default): */
+/* FP32 accum / FP16 inputs, VLEN=256, λ=2: EMUL_C=2.  LMUL=1 (default): */
 vfloat32m2_t __riscv_vfwmmacc_vv_f32m2(vfloat32m2_t vd,
                                         vfloat16m1_t vs1, vfloat16m1_t vs2, size_t vl);
-/* FP64 accum / FP32 inputs, VLEN=256, λ=2: MUL_C=1.  LMUL=1 (default): */
+/* FP64 accum / FP32 inputs, VLEN=256, λ=2: EMUL_C=1.  LMUL=1 (default): */
 vfloat64m1_t __riscv_vfwmmacc_vv_f64m1(vfloat64m1_t vd,
                                         vfloat32m1_t vs1, vfloat32m1_t vs2, size_t vl);
 --
@@ -1837,19 +1863,19 @@ For `vfqmmacc.vv` (W=4), A/B use SEW/4:
 
 [source,c]
 --
-/* FP16 accum / OFP4 E2M1 inputs, VLEN=256, λ=2: MUL_C=4.  LMUL=1 (default): */
+/* FP16 accum / OFP4 E2M1 inputs, VLEN=256, λ=2: EMUL_C=4.  LMUL=1 (default): */
 vfloat16m4_t __riscv_vfqmmacc_vv_f16m4_f4e2m1m1(vfloat16m4_t vd,
                                                    vfloat4e2m1m1_t vs1, vfloat4e2m1m1_t vs2, size_t vl);
-/* BF16 accum / OFP4 E2M1 inputs, VLEN=256, λ=2: MUL_C=4.  LMUL=1 (default): */
+/* BF16 accum / OFP4 E2M1 inputs, VLEN=256, λ=2: EMUL_C=4.  LMUL=1 (default): */
 vbfloat16m4_t __riscv_vfqmmacc_vv_bf16m4_f4e2m1m1(vbfloat16m4_t vd,
                                                      vfloat4e2m1m1_t vs1, vfloat4e2m1m1_t vs2, size_t vl);
-/* FP32 accum / OFP8 E4M3 inputs, VLEN=256, λ=2: MUL_C=2.  LMUL=1 (default): */
+/* FP32 accum / OFP8 E4M3 inputs, VLEN=256, λ=2: EMUL_C=2.  LMUL=1 (default): */
 vfloat32m2_t __riscv_vfqmmacc_vv_f32m2_f8e4m3m1(vfloat32m2_t vd,
                                                    vfloat8e4m3m1_t vs1, vfloat8e4m3m1_t vs2, size_t vl);
-/* FP64 accum / BF16 inputs, VLEN=256, λ=2: MUL_C=1.  LMUL=1 (default): */
+/* FP64 accum / BF16 inputs, VLEN=256, λ=2: EMUL_C=1.  LMUL=1 (default): */
 vfloat64m1_t __riscv_vfqmmacc_vv_f64m1_bf16m1(vfloat64m1_t vd,
                                                  vbfloat16m1_t vs1, vbfloat16m1_t vs2, size_t vl);
-/* FP64 accum / FP16 inputs, VLEN=256, λ=2: MUL_C=1.  LMUL=1 (default): */
+/* FP64 accum / FP16 inputs, VLEN=256, λ=2: EMUL_C=1.  LMUL=1 (default): */
 vfloat64m1_t __riscv_vfqmmacc_vv_f64m1(vfloat64m1_t vd,
                                          vfloat16m1_t vs1, vfloat16m1_t vs2, size_t vl);
 --
@@ -1998,14 +2024,14 @@ format separately.
 
 ===== VLEN-portable code
 
-Because MUL_C = VLEN / (SEW × λ²), the accumulator register-group multiplier
+Because EMUL_C = VLEN / (SEW × λ²), the accumulator register-group multiplier
 varies across implementations with different values of VLEN and λ, even for a fixed SEW tied to an output type.
-The type suffix in a long-form multiply-accumulate intrinsic name directly encodes MUL_C, whereas in an overloaded name that MUL_C is implicit.
-Either way, source code with IME intrinsics is tied to a specific combination of input/output types and value of MUL_C.
+The type suffix in a long-form multiply-accumulate intrinsic name directly encodes EMUL_C, whereas in an overloaded name that EMUL_C is implicit.
+Either way, source code with IME intrinsics is tied to a specific combination of input/output types and value of EMUL_C.
 
 Although it is possible to write more general assembly code, it is common industry practice to favor coding with compiler intrinsics.
-The recommended approach for writing portable code with IME intrinsics is to package multiple code paths in the same executable, each optimized for a specific value of MUL_C.
-Runtime selection of the appropriate code path is then performed based on the result of `vsetvl` and computations of MUL_C = VLEN / (SEW × λ²).
+The recommended approach for writing portable code with IME intrinsics is to package multiple code paths in the same executable, each optimized for a specific value of EMUL_C.
+Runtime selection of the appropriate code path is then performed based on the result of `vsetvl` and computations of EMUL_C = VLEN / (SEW × λ²).
 
 [#integrated-matrix-insns,reftext="Instructions (in alphabetical order)"]
 === Instructions (in alphabetical order)
@@ -2047,10 +2073,10 @@ function mat_B_idx(k : int, j : int, K_eff : int,
   tile_reg_idx(j * K_eff + k, LMUL, lambda, epr)
 
 // C[i, j] in vd: C is stored row-major; the row stride is N (= columns of C).
-// MUL_C = VLEN / (SEW * lambda^2) is the number of registers in the C group.
+// EMUL_C = VLEN / (SEW * lambda^2) is the number of registers in the C group.
 function mat_C_idx(i : int, j : int, N : int,
-                   MUL_C : int, lambda : int, epr : int) -> int =
-  tile_reg_idx(i * N + j, MUL_C, lambda, epr)
+                   EMUL_C : int, lambda : int, epr : int) -> int =
+  tile_reg_idx(i * N + j, EMUL_C, lambda, epr)
 
 // fp_format_of(EEW : int, alt : bit) -> fp_fmt
 //   Decode (element width in bits, altfmt flag) to the concrete FP format as specified
@@ -2121,7 +2147,7 @@ struct gemm_geom = {
   K_eff   : int,   // effective K dimension (= lambda * W * LMUL)
   M       : int,   // rows of A / C tile
   N       : int,   // columns of B / C tile (set via VL)
-  MUL_C   : int,   // number of registers in C group
+  EMUL_C   : int,   // number of registers in C group
   epr_A   : int,   // elements per register at EEW_A
   epr_C   : int,   // elements per register at EEW_C
 }
@@ -2149,12 +2175,12 @@ function decode_gemm_geometry(W : int) -> gemm_geom = {
   let vl_div : int = lambda * LMUL;
   let N      : int = unsigned(vl) / vl_div;
   let M      : int = (LMUL * vlen / EEW_A) / K_eff;
-  let MUL_C  : int = M / lambda;
+  let EMUL_C  : int = M / lambda;
 
   if unsigned(vl) % vl_div != 0 then return Illegal_Instruction();
-  if MUL_C not in {1,2,4,8,16}  then return Illegal_Instruction();
+  if EMUL_C not in {1,2,4,8,16}  then return Illegal_Instruction();
 
-  struct { EEW_C, EEW_A, W, LMUL, lambda, K_eff, M, N, MUL_C, epr_A, epr_C }
+  struct { EEW_C, EEW_A, W, LMUL, lambda, K_eff, M, N, EMUL_C, epr_A, epr_C }
 }
 
 // Partial-sum formation mode for floating-point group reduction.
@@ -2368,7 +2394,7 @@ function int_gemm(g : gemm_geom, signed_A : bool, signed_B : bool,
                   vs1 : regidx, vs2 : regidx, vd : regidx) -> unit = {
   foreach (j from 0 to (g.N - 1)) {
     foreach (i from 0 to (g.M - 1)) {
-      let c_flat : int = mat_C_idx(i, j, g.N, g.MUL_C, g.lambda, g.epr_C);
+      let c_flat : int = mat_C_idx(i, j, g.N, g.EMUL_C, g.lambda, g.epr_C);
       let c_bits : bits(g.EEW_C) = read_single_element(g.EEW_C, c_flat, vd);
       var acc : int = signed(c_bits);
       acc = acc + int_block_dot(i, j, 0, g.K_eff - 1, g,
@@ -2392,7 +2418,7 @@ function fp_gemm(g : gemm_geom,
 
   foreach (j from 0 to (g.N - 1)) {
     foreach (i from 0 to (g.M - 1)) {
-      let c_flat : int        = mat_C_idx(i, j, g.N, g.MUL_C, g.lambda, g.epr_C);
+      let c_flat : int        = mat_C_idx(i, j, g.N, g.EMUL_C, g.lambda, g.epr_C);
       var acc : bits(g.EEW_C) = read_single_element(g.EEW_C, c_flat, vd);
 
       // The semantics for LMUL > 1 are defined as repeated application
@@ -2442,7 +2468,7 @@ function fp_scaled_gemm(g : gemm_geom,
 
   foreach (j from 0 to (g.N - 1)) {
     foreach (i from 0 to (g.M - 1)) {
-      let c_flat : int        = mat_C_idx(i, j, g.N, g.MUL_C, g.lambda, g.epr_C);
+      let c_flat : int        = mat_C_idx(i, j, g.N, g.EMUL_C, g.lambda, g.epr_C);
       var acc : bits(g.EEW_C) = read_single_element(g.EEW_C, c_flat, vd);
       var nan_out : bool = false;
 
@@ -2520,7 +2546,7 @@ function int_scaled_gemm(g : gemm_geom,
 
   foreach (j from 0 to (g.N - 1)) {
     foreach (i from 0 to (g.M - 1)) {
-      let c_flat : int      = mat_C_idx(i, j, g.N, g.MUL_C, g.lambda, g.epr_C);
+      let c_flat : int      = mat_C_idx(i, j, g.N, g.EMUL_C, g.lambda, g.epr_C);
       var acc : bits(g.EEW_C) = read_single_element(g.EEW_C, c_flat, vd);
       var nan_out : bool = false;
 
@@ -2594,9 +2620,9 @@ _Illegal Instruction_ is raised if any of the following conditions holds:
 * `vm` = 0 (_reserved_).
 * SEW < 32 (EEW = SEW÷8 would be sub-nibble).
 * VL is not a multiple of λ × LMUL.
-* MUL_C (= VLEN ÷ (SEW × λ²)) is not in \{1, 2, 4, 8, 16}.
+* EMUL_C (= VLEN ÷ (SEW × λ²)) is not in \{1, 2, 4, 8, 16}.
 * _vs1_ or _vs2_ is not aligned for LMUL.
-* _vd_ is not aligned for MUL_C.
+* _vd_ is not aligned for EMUL_C.
 
 Operation::
 [source,sail]
@@ -2683,9 +2709,9 @@ _Illegal Instruction_ is raised if any of the following conditions holds:
 * `vstart` ≠ 0.
 * SEW < 32 (EEW = SEW÷8 would be sub-nibble).
 * VL is not a multiple of λ × LMUL.
-* MUL_C (= VLEN ÷ (SEW × λ²)) is not in \{1, 2, 4, 8, 16}.
+* EMUL_C (= VLEN ÷ (SEW × λ²)) is not in \{1, 2, 4, 8, 16}.
 * _vs1_ or _vs2_ is not aligned for LMUL.
-* _vd_ is not aligned for MUL_C.
+* _vd_ is not aligned for EMUL_C.
 * When `vm=0`: SEW × λ < 16.
 * When `vm=0` and `bs=1`: W × LMUL > SEW (i.e., 8 × LMUL > SEW).
 * When `vm=0`: _vd_, _vs1_, or _vs2_ overlaps `v0`.
@@ -2775,9 +2801,9 @@ _Illegal Instruction_ is raised if any of the following conditions holds:
 * `vstart` ≠ 0.
 * `vm` = 0 (_reserved_).
 * VL is not a multiple of λ × LMUL.
-* MUL_C (= VLEN ÷ (SEW × λ²)) is not in \{1, 2, 4, 8, 16}.
+* EMUL_C (= VLEN ÷ (SEW × λ²)) is not in \{1, 2, 4, 8, 16}.
 * _vs1_ or _vs2_ is not aligned for LMUL.
-* _vd_ is not aligned for MUL_C.
+* _vd_ is not aligned for EMUL_C.
 
 Operation::
 [source,sail]
@@ -2862,9 +2888,9 @@ _Illegal Instruction_ is raised if any of the following conditions holds:
 +
 * `vstart` ≠ 0.
 * VL is not a multiple of λ × LMUL.
-* MUL_C (= VLEN ÷ (SEW × λ²)) is not in \{1, 2, 4, 8, 16}.
+* EMUL_C (= VLEN ÷ (SEW × λ²)) is not in \{1, 2, 4, 8, 16}.
 * _vs1_ or _vs2_ is not aligned for LMUL.
-* _vd_ is not aligned for MUL_C.
+* _vd_ is not aligned for EMUL_C.
 * When `vm=0`: SEW × λ < 16.
 * When `vm=0` and `bs=1`: W × LMUL > SEW.
 * When `vm=0`: _vd_, _vs1_, or _vs2_ overlaps `v0`.
@@ -2963,9 +2989,9 @@ _Illegal Instruction_ is raised if any of the following conditions holds:
 +
 * `vstart` ≠ 0.
 * VL is not a multiple of λ × LMUL.
-* MUL_C (= VLEN ÷ (SEW × λ²)) is not in \{1, 2, 4, 8, 16}.
+* EMUL_C (= VLEN ÷ (SEW × λ²)) is not in \{1, 2, 4, 8, 16}.
 * _vs1_ or _vs2_ is not aligned for LMUL.
-* _vd_ is not aligned for MUL_C.
+* _vd_ is not aligned for EMUL_C.
 * When `vm=0`: SEW × λ < 16.
 * When `vm=0` and `bs=1`: W × LMUL > SEW.
 * When `vm=0`: _vd_, _vs1_, or _vs2_ overlaps `v0`.
@@ -3070,9 +3096,9 @@ _Illegal Instruction_ is raised if any of the following conditions holds:
 * `altfmt_A` = 1 (reserved; MXINT inputs are signed).
 * `altfmt_B` = 1 (reserved; MXINT inputs are signed).
 * VL is not a multiple of λ × LMUL.
-* MUL_C (= VLEN ÷ (SEW × λ²)) is not in \{1, 2, 4, 8, 16}.
+* EMUL_C (= VLEN ÷ (SEW × λ²)) is not in \{1, 2, 4, 8, 16}.
 * _vs1_ or _vs2_ is not aligned for LMUL.
-* _vd_ is not aligned for MUL_C.
+* _vd_ is not aligned for EMUL_C.
 * SEW × λ < 16.
 * When `bs=1`: W × LMUL > SEW (i.e., 2 × LMUL > SEW).
 * _vd_, _vs1_, or _vs2_ overlaps `v0`.
@@ -3174,9 +3200,9 @@ _Illegal Instruction_ is raised if any of the following conditions holds:
 * `altfmt_A` = 1 (reserved; MXINT inputs are signed).
 * `altfmt_B` = 1 (reserved; MXINT inputs are signed).
 * VL is not a multiple of λ × LMUL.
-* MUL_C (= VLEN ÷ (SEW × λ²)) is not in \{1, 2, 4, 8, 16}.
+* EMUL_C (= VLEN ÷ (SEW × λ²)) is not in \{1, 2, 4, 8, 16}.
 * _vs1_ or _vs2_ is not aligned for LMUL.
-* _vd_ is not aligned for MUL_C.
+* _vd_ is not aligned for EMUL_C.
 * SEW × λ < 16.
 * When `bs=1`: W × LMUL > SEW (i.e., 8 × LMUL > SEW).
 * _vd_, _vs1_, or _vs2_ overlaps `v0`.
@@ -3277,9 +3303,9 @@ _Illegal Instruction_ is raised if any of the following conditions holds:
 * `altfmt_A` = 1 (reserved; MXINT inputs are signed).
 * `altfmt_B` = 1 (reserved; MXINT inputs are signed).
 * VL is not a multiple of λ × LMUL.
-* MUL_C (= VLEN ÷ (SEW × λ²)) is not in \{1, 2, 4, 8, 16}.
+* EMUL_C (= VLEN ÷ (SEW × λ²)) is not in \{1, 2, 4, 8, 16}.
 * _vs1_ or _vs2_ is not aligned for LMUL.
-* _vd_ is not aligned for MUL_C.
+* _vd_ is not aligned for EMUL_C.
 * SEW × λ < 16.
 * When `bs=1`: W × LMUL > SEW (i.e., 4 × LMUL > SEW).
 * _vd_, _vs1_, or _vs2_ overlaps `v0`.
@@ -3367,9 +3393,9 @@ _Illegal Instruction_ is raised if any of the following conditions holds:
 * `vstart` ≠ 0.
 * `vm` = 0 (_reserved_).
 * VL is not a multiple of λ × LMUL.
-* MUL_C (= VLEN ÷ (SEW × λ²)) is not in \{1, 2, 4, 8, 16}.
+* EMUL_C (= VLEN ÷ (SEW × λ²)) is not in \{1, 2, 4, 8, 16}.
 * _vs1_ or _vs2_ is not aligned for LMUL.
-* _vd_ is not aligned for MUL_C.
+* _vd_ is not aligned for EMUL_C.
 
 Operation::
 [source,sail]
@@ -3731,7 +3757,7 @@ Encoding::
 ....
 
 Description::
-Stores a 2D matrix tile from vector registers to memory, applying the inverse transposition
+Stores a 2D matrix tile from vector register groups to memory, applying the inverse transposition
 of `vmttl.v`.
 _rs1_ holds the matrix base address; _rs2_ holds the leading dimension `LD` in elements.
 if _rs2_ holds zero (0), the leading dimension `LD` is set to λ × LMUL.
@@ -3848,9 +3874,9 @@ _Illegal Instruction_ is raised if any of the following conditions holds:
 +
 * `vstart` ≠ 0.
 * VL is not a multiple of λ × LMUL.
-* MUL_C (= VLEN ÷ (SEW × λ²)) is not in \{1, 2, 4, 8, 16}.
+* EMUL_C (= VLEN ÷ (SEW × λ²)) is not in \{1, 2, 4, 8, 16}.
 * _vs1_ or _vs2_ is not aligned for LMUL.
-* _vd_ is not aligned for MUL_C.
+* _vd_ is not aligned for EMUL_C.
 
 Operation::
 [source,sail]
@@ -3924,9 +3950,9 @@ _Illegal Instruction_ is raised if any of the following conditions holds:
 +
 * `vstart` ≠ 0.
 * VL is not a multiple of λ × LMUL.
-* MUL_C (= VLEN ÷ (SEW × λ²)) is not in \{1, 2, 4, 8, 16}.
+* EMUL_C (= VLEN ÷ (SEW × λ²)) is not in \{1, 2, 4, 8, 16}.
 * _vs1_ or _vs2_ is not aligned for LMUL.
-* _vd_ is not aligned for MUL_C.
+* _vd_ is not aligned for EMUL_C.
 
 Operation::
 [source,sail]
@@ -3958,16 +3984,16 @@ Included in::
 
 
 [#mx-subextensions-section]
-=== Microscaling Subextensions
+=== Microscaling extensions
 
-Each microscaling subextension enables the `vm=0` / `v0.scale` encoding for
+Each microscaling extension enables the `vm=0` / `v0.scale` encoding for
 a specific (input format, accumulator format, block size) combination.
-A floating-point microscaling subextension implies its corresponding base
-subextension: for example, Zvvxofp4fp16mm implies Zvvofp4fp16mm, which provides
+A floating-point microscaling extension implies its corresponding base
+extension: for example, Zvvxofp4fp16mm implies Zvvofp4fp16mm, which provides
 the underlying OFP4→FP16 instruction support.
 Only widening floating-point multiply-accumulate instructions define FP microscaling variants, and only for narrow input formats (OFP4, OFP8).
-The integer MX subextensions (`Zvvxi*mm`, `Zvvxni*mm`) do not imply a
-base subextension: `vfwimmacc.vv` and `vfqimmacc.vv` have no non-MX
+The integer MX extensions (`Zvvxi*mm`, `Zvvxni*mm`) do not imply a
+base extension: `vfwimmacc.vv` and `vfqimmacc.vv` have no non-MX
 FP-accumulate form (the `vm=1` encoding of those opcodes is the existing
 integer-accumulate `vwmmacc.vv` / `vqmmacc.vv`).
 The block size and implication relationships are listed in <<tbl-mx-subextensions>>.
@@ -4020,7 +4046,7 @@ NOTE: See <<Block size selection>> for LMUL restrictions when `bs=1`.
 
 The following tables enumerate every (instruction, SEW, altfmt) encoding
 point and map it to its input and output data types and the governing
-subextension.  Entries marked _reserved_ raise an illegal-instruction
+extension.  Entries marked _reserved_ raise an illegal-instruction
 exception.
 
 ==== Floating-point encoding map
@@ -4033,7 +4059,7 @@ combinations are listed explicitly in the table below.
 .Floating-point multiply-accumulate encoding map
 [cols="2,1,1,1,2,1,2,1,2,2,2,2", options="header"]
 |===
-| Instruction | SEW | EEW | altfmt_A | Input A | altfmt_B | Input B | altfmt | C Type | Subextension | MX BS=32 (vm=0) | MX BS=16 (vm=0)
+| Instruction | SEW | EEW | altfmt_A | Input A | altfmt_B | Input B | altfmt | C Type | Extension | MX BS=32 (vm=0) | MX BS=16 (vm=0)
 
 12+^e| *vfmmacc.vv (W=1)*
 
@@ -4126,7 +4152,7 @@ For `vwmmacc.vv`, `vqmmacc.vv`, and `v8wmmacc.vv`, `vm=0` is separately defined 
 .Integer multiply-accumulate encoding map
 [cols="2,1,1,1,2,1,2,2,2", options="header"]
 |===
-| Instruction | SEW | EEW | altfmt_A | Input A | altfmt_B | Input B | C Type | Subextension
+| Instruction | SEW | EEW | altfmt_A | Input A | altfmt_B | Input B | C Type | Extension
 
 9+^e| *vmmacc.vv (W=1)*
 
