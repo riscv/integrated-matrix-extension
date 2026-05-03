@@ -692,7 +692,7 @@ The implementation-defined grouping factor `G` is applied separately within each
 * `G` is a power of two;
 * 1 ≤ `G` ≤ λ.
 
-* Within each group, the `G` sub-dot-products jointly define a dot product of two vectors with `G × W` elements. This group dot product is reduced into a partial sum `S` according to an implementation-defined parameter `psm`.
+* Within each group, the `G` sub-dot-products jointly define a dot product of two vectors with `G × W` elements. This group dot product is reduced into a partial sum `S` according to an implementation-defined parameter `psm` ∈ {0, 1}.
 
 ** If `psm=0`, the partial sum `S` is formed using exact computation: the contributing products and sums are computed in sufficiently precise internal form, without rounding to the C accumulator format, until the next rounding step defined by this specification.
 
