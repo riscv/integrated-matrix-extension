@@ -92,7 +92,7 @@ The tile dimensions follow from the widening and LMUL settings:
 | M = N = L_A ÷ K_eff                   | Rows and columns of the square accumulator tile.
 |===
 
-The accumulator register group has cardinality MUL_C = VLEN ÷ (SEW × λ²), independent of both W and LMUL.
+NOTE: MUL_C = VLEN ÷ (SEW × λ²) is independent of both W and LMUL; the C register group always occupies MUL_C vector registers regardless of how A and B are configured.
 
 The elements in the vector registers are contiguous in the λ direction, as depicted in
 <<ime-geometry-fig>>. Tile A and C elements are sorted in row-major order while tile B^T^
