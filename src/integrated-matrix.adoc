@@ -55,7 +55,7 @@ Matrix tiles are represented using the existing RISC-V V register file and its c
 The three matrices in the multiply-accumulate operation C ← A × B^T^ + C are stored as follows:
 
 * The _accumulator_ C is stored in a vector register group with element width SEW.
-  Its register group multiplier MUL_C is determined by the tile geometry:
+  The register-group multiplier of the C register group, denoted MUL_C, is the effective LMUL (EMUL) used for that group; it is determined by the tile geometry rather than by `vtype.LMUL`:
   MUL_C = (VLEN / SEW) / λ^2^, where λ is the tile-layout parameter decoded from the `lambda[2:0]` field in `vtype`.
   The C register group may start at any vector register index that is MUL_C-aligned.
   λ^2^ must divide (VLEN / SEW) such that
