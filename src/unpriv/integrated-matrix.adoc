@@ -1446,8 +1446,11 @@ The naming convention and type system extend the RISC-V V Intrinsics API
   `__riscv_{mnemonic}_vv_{accum}_{inputA}_{inputB}`.
   When `altfmt_A = altfmt_B`, a single input-type suffix suffices.
 * The canonical suffix ordering for the long-form name is:
-  `{type-suffix}[_{inputA}[_{inputB}]][_su|_us][_lm{N}][_L{N}]`
+  `{type-suffix}[_{inputA}[_{inputB}]][_su|_us][_lm{N}][_L{N}][_m]`
   where each bracketed component is omitted when not applicable.
+  The `_m` (masked) suffix is reserved for tile load/store intrinsics
+  and always appears last; `_L{N}` (immediate-lambda) and `_m` are
+  orthogonal and may be combined as `_L{N}_m`.
 
 ===== Overloaded short forms (GCC and Clang)
 
@@ -1490,6 +1493,39 @@ NOTE: The mechanism used for overload resolution in C is compiler-specific
 (`resolve_overloaded_builtin` in GCC, `__attribute__((overloadable))` in Clang).
 The resulting user-visible API is identical across compilers; only the internal
 implementation differs.
+
+===== Geometry-query intrinsics
+
+Two non-instruction intrinsics expose the implementation's IME geometry to
+software:
+
+[source,c]
+--
+size_t __riscv_ime_vlen   (void);   /* VLEN in bits */
+size_t __riscv_ime_lambda (void);   /* implementation lambda value */
+--
+
+`__riscv_ime_vlen()` returns the architectural VLEN (in bits).  When VLEN is
+known to the compiler — for example via `-mrvv-vector-bits=zvl` on GCC or
+Clang — the call folds to a load-immediate; otherwise the compiler emits
+`csrr vlenb` followed by a left-shift by 3.
+
+`__riscv_ime_lambda()` returns the implementation's lambda value as observed
+by the matrix unit.  When VLEN is statically known the call folds to a
+constant; otherwise the compiler emits a runtime sequence (typically
+`csrr vlenb` followed by `ctz` and a shift) that derives lambda from VLEN.
+
+These intrinsics are the supported way for software to discover the
+implementation's tile geometry without parsing CSR fields directly, and are
+intended for use in the runtime-dispatch pattern described in
+<<_vlen_portable_code>>: software queries lambda (and VLEN, if needed),
+then selects an appropriate code path among several specialised by MUL_C.
+
+NOTE: `__riscv_ime_lambda()` returns a single representative lambda value
+for the implementation.  Implementations may support multiple lambda values
+in `vtype.lambda[2:0]` (the field is WARL).  Software that needs to enumerate
+all supported lambda values must do so through `vsetvl` write-readback at
+the relevant SEW; see <<_vlen_portable_code>>.
 
 ===== Tile load and store (Zvvmtls) and transposed tile load and store (Zvvmttls)
 
@@ -1542,6 +1578,43 @@ void __riscv_vmtts_v_f32m1 (float    *base, size_t ld, vfloat32m1_t vs3, size_t 
 void __riscv_vmtts_v_f64m1 (double   *base, size_t ld, vfloat64m1_t vs3, size_t vl);
 --
 
+The tile load/store intrinsics are also defined for the alternate-format
+input vector types (OFP4, OFP8, BF16, Int4) so that input tiles can be
+loaded and stored without a `vreinterpret`.  The element width follows
+the underlying storage width: 8 bits for OFP8 and 4 bits for OFP4 / Int4.
+The base-pointer type is `uint8_t *` for OFP8 (and for OFP4 / Int4 packed
+into bytes).
+
+[source,c]
+--
+/* OFP8 — order-preserving load/store: */
+vfloat8e4m3m1_t __riscv_vmtl_v_f8e4m3m1 (const uint8_t *base, size_t ld, size_t vl);
+vfloat8e5m2m1_t __riscv_vmtl_v_f8e5m2m1 (const uint8_t *base, size_t ld, size_t vl);
+void __riscv_vmts_v_f8e4m3m1 (uint8_t *base, size_t ld, vfloat8e4m3m1_t vs3, size_t vl);
+void __riscv_vmts_v_f8e5m2m1 (uint8_t *base, size_t ld, vfloat8e5m2m1_t vs3, size_t vl);
+
+/* OFP8 — transposing load/store: */
+vfloat8e4m3m1_t __riscv_vmttl_v_f8e4m3m1 (const uint8_t *base, size_t ld, size_t vl);
+void __riscv_vmtts_v_f8e5m2m1 (uint8_t *base, size_t ld, vfloat8e5m2m1_t vs3, size_t vl);
+
+/* OFP4 / Int4 — order-preserving load/store: */
+vfloat4e2m1m1_t __riscv_vmtl_v_f4e2m1m1 (const uint8_t *base, size_t ld, size_t vl);
+vint4m1_t       __riscv_vmtl_v_i4m1     (const uint8_t *base, size_t ld, size_t vl);
+vuint4m1_t      __riscv_vmtl_v_u4m1     (const uint8_t *base, size_t ld, size_t vl);
+void __riscv_vmts_v_f4e2m1m1 (uint8_t *base, size_t ld, vfloat4e2m1m1_t vs3, size_t vl);
+void __riscv_vmts_v_i4m1     (uint8_t *base, size_t ld, vint4m1_t       vs3, size_t vl);
+void __riscv_vmts_v_u4m1     (uint8_t *base, size_t ld, vuint4m1_t      vs3, size_t vl);
+
+/* BFloat16 — order-preserving load/store: */
+vbfloat16m1_t __riscv_vmtl_v_bf16m1 (const __bf16 *base, size_t ld, size_t vl);
+void __riscv_vmts_v_bf16m1 (__bf16 *base, size_t ld, vbfloat16m1_t vs3, size_t vl);
+--
+
+The transposing tile load/store intrinsics (`vmttl.v` / `vmtts.v`) follow
+the same pattern; replace `vmtl` / `vmts` with `vmttl` / `vmtts`.
+All masking (`_m`) and immediate-lambda (`_L{N}`) qualifiers extend to
+these alternate-format intrinsics on the same orthogonal basis.
+
 When an immediate lambda override is required, a `_L{N}` variant encodes the
 lambda value (N ∈ {1, 2, 4, 8, 16, 32, 64}) directly in the intrinsic name.
 Because the lambda value maps to a 3-bit instruction-immediate field, the
@@ -1557,6 +1630,38 @@ void         __riscv_vmts_v_i32m1_L4  (int32_t *base, size_t ld, vint32m1_t vs3,
 vint32m1_t   __riscv_vmttl_v_i32m1_L4 (const int32_t *base, size_t ld, size_t vl);
 /* vmtts.v with lambda=4: */
 void         __riscv_vmtts_v_i32m1_L4 (int32_t *base, size_t ld, vint32m1_t vs3, size_t vl);
+--
+
+Tile load and store intrinsics support an optional mask through the
+`_m` suffix.  The masked load takes a leading `vbool{N}_t mask` argument;
+the masked store takes a leading `vbool{N}_t mask` followed by the usual
+arguments.  The mask bit width matches the data type's element width
+(e.g., `vbool8_t` for `i8m1`, `vbool32_t` for `i32m1`, `vbool16_t` for
+`bf16m1`), following the standard V-extension convention.
+
+[source,c]
+--
+/* vmtl.v masked: */
+vint8m1_t  __riscv_vmtl_v_i8m1_m  (vbool8_t mask,  const int8_t  *base, size_t ld, size_t vl);
+vint32m1_t __riscv_vmtl_v_i32m1_m (vbool32_t mask, const int32_t *base, size_t ld, size_t vl);
+/* vmts.v masked: */
+void __riscv_vmts_v_i8m1_m  (vbool8_t mask,  int8_t  *base, size_t ld, vint8m1_t  vs3, size_t vl);
+void __riscv_vmts_v_i32m1_m (vbool32_t mask, int32_t *base, size_t ld, vint32m1_t vs3, size_t vl);
+/* vmttl.v masked: */
+vint32m1_t __riscv_vmttl_v_i32m1_m (vbool32_t mask, const int32_t *base, size_t ld, size_t vl);
+/* vmtts.v masked: */
+void __riscv_vmtts_v_i32m1_m (vbool32_t mask, int32_t *base, size_t ld, vint32m1_t vs3, size_t vl);
+--
+
+The `_L{N}` (immediate-lambda) and `_m` (masked) qualifiers are orthogonal
+and may be combined.  `_L{N}` precedes `_m` per the canonical suffix order:
+
+[source,c]
+--
+/* vmtl.v with lambda=4 and a mask: */
+vint8m1_t __riscv_vmtl_v_i8m1_L4_m (vbool8_t mask, const int8_t *base, size_t ld, size_t vl);
+/* vmts.v with lambda=4 and a mask: */
+void      __riscv_vmts_v_i8m1_L4_m (vbool8_t mask, int8_t *base, size_t ld, vint8m1_t vs3, size_t vl);
 --
 
 ===== Integer matrix multiply-accumulate (Zvvmm)
@@ -1656,6 +1761,22 @@ vint32m2_t __riscv_vwmmacc_vv_i32m2_su(vint32m2_t vd, vint16m1_t  vs1,
 /* vwmmacc.vv unsigned A × signed B; SEW=32, VLEN=256, λ=2: MUL_C=2, LMUL=1 */
 vint32m2_t __riscv_vwmmacc_vv_i32m2_us(vint32m2_t vd, vuint16m1_t vs1,
                                         vint16m1_t  vs2, size_t vl);
+--
+
+The `_su` / `_us` mixed-sign suffix and the `_lm{N}` LMUL suffix combine
+in the canonical order `_su|_us` followed by `_lm{N}`:
+
+[source,c]
+--
+/* vmmacc.vv signed A × unsigned B with LMUL=2 (MUL_C=2, LMUL=2): */
+vint32m2_t __riscv_vmmacc_vv_i32m2_su_lm2(vint32m2_t vd, vint32m2_t  vs1,
+                                            vuint32m2_t vs2, size_t vl);
+/* vwmmacc.vv signed A × unsigned B with LMUL=4 (MUL_C=2, LMUL=4): */
+vint32m2_t __riscv_vwmmacc_vv_i32m2_su_lm4(vint32m2_t vd, vint16m4_t  vs1,
+                                              vuint16m4_t vs2, size_t vl);
+/* vqwmmacc.vv unsigned A × signed B with LMUL=8 (MUL_C=2, LMUL=8): */
+vint32m2_t __riscv_vqwmmacc_vv_i32m2_us_lm8(vint32m2_t vd, vuint8m8_t vs1,
+                                               vint8m8_t  vs2, size_t vl);
 --
 
 ===== Floating-point matrix multiply-accumulate (Zvvfmm)
@@ -1763,12 +1884,30 @@ vfloat16m4_t __riscv_vfwmmacc_vv_f16m4_f8e4m3m1_f8e5m2m1(vfloat16m4_t vd,
 /* Mixed 16-bit: FP16 × BF16 → FP32 via vfwmmacc.vv (altfmt_A=0, altfmt_B=1): */
 vfloat32m2_t __riscv_vfwmmacc_vv_f32m2_f16m1_bf16m1(vfloat32m2_t vd,
                                                       vfloat16m1_t vs1, vbfloat16m1_t vs2, size_t vl);
+/* Mixed OFP8 with BF16 accumulator (altfmt selects BF16 over FP16
+   for the C type, plus altfmt_A=0, altfmt_B=1 for the inputs).
+   The accumulator type appears once, followed by both input types: */
+vbfloat16m4_t __riscv_vfwmmacc_vv_bf16m4_f8e4m3m1_f8e5m2m1(vbfloat16m4_t vd,
+                                                              vfloat8e4m3m1_t vs1, vfloat8e5m2m1_t vs2, size_t vl);
+/* Mixed OFP8 → OFP8 (non-widening vfmmacc.vv).  Both input formats and
+   the accumulator format are independent; up to three type tokens: */
+vfloat8e4m3m1_t __riscv_vfmmacc_vv_f8e4m3m1_f8e4m3m1_f8e5m2m1(vfloat8e4m3m1_t vd,
+                                                                  vfloat8e4m3m1_t vs1, vfloat8e5m2m1_t vs2, size_t vl);
 /* Overloaded short forms — compiler resolves from vs1/vs2 types: */
 vfloat16m4_t __riscv_vfwmmacc_vv(vfloat16m4_t vd,
                                   vfloat8e4m3m1_t vs1, vfloat8e5m2m1_t vs2, size_t vl) __attribute__((overloadable));
 vfloat32m2_t __riscv_vfwmmacc_vv(vfloat32m2_t vd,
                                   vfloat16m1_t vs1, vbfloat16m1_t vs2, size_t vl) __attribute__((overloadable));
+vbfloat16m4_t __riscv_vfwmmacc_vv(vbfloat16m4_t vd,
+                                    vfloat8e4m3m1_t vs1, vfloat8e5m2m1_t vs2, size_t vl) __attribute__((overloadable));
 --
+
+The three-token long-form name encodes the accumulator type first (as
+the canonical type-suffix), followed by the A and B input-type suffixes
+in order.  When the accumulator is the default for the given instruction
+and SEW (e.g., FP16 for `vfwmmacc.vv` with 8-bit inputs), the two-token
+form is used; the three-token form arises only when the accumulator type
+itself is a non-default selection (e.g., BF16 from `vfwmmacc.vv`).
 
 
 The `vfwimmacc.vv` and `vfqimmacc.vv` instructions use integer input tiles
@@ -1793,6 +1932,70 @@ vfloat16m4_t __riscv_vfqimmacc_vv_f16m4_i4m1(vfloat16m4_t vd,
 vbfloat16m4_t __riscv_vfqimmacc_vv_bf16m4_u4m1(vbfloat16m4_t vd,
                                                   vuint4m1_t vs1, vuint4m1_t vs2, size_t vl);
 --
+
+===== Microscaled multiply-accumulate intrinsics
+
+Microscaled (MX) multiply-accumulate variants take an extra `vuint16m1_t v0`
+argument carrying the paired block-scale values (see <<integrated-matrix-microscaling>>).
+Two qualifiers in the intrinsic name distinguish them from the unscaled forms:
+
+* `_scaled` — applied to the floating-point widening intrinsics
+  (`vfwmmacc`, `vfqmmacc`, `vf8wmmacc`).  These instructions exist in both
+  unscaled and scaled forms; the qualifier disambiguates.
+* `_bs{N}` (N ∈ {16, 32}) — appended to the type-suffix to select the
+  block size.  This applies to all microscaled intrinsics, including the
+  integer-input ones (`vfwimmacc`, `vfqimmacc`, `vf8wimmacc`), which
+  exist only in the microscaled form and therefore do not carry `_scaled`.
+
+The full canonical suffix order for microscaled multiply-accumulate
+intrinsics extends the one given in <<integrated-matrix-intrinsics>>:
+
+----
+{type-suffix}[_{inputA}[_{inputB}]][_su|_us][_lm{N}]_bs{N}
+----
+
+[source,c]
+--
+/* Floating-point microscaled (FP × FP × MX scale): _scaled qualifier */
+
+/* FP16 × FP16 → FP32, block size 32 */
+vfloat32m2_t __riscv_vfwmmacc_scaled_vv_f32m2_f16m1_bs32(
+    vfloat32m2_t vd, vfloat16m1_t vs1, vfloat16m1_t vs2,
+    vuint16m1_t v0, size_t vl);
+/* FP16 × FP16 → FP32, block size 16 */
+vfloat32m2_t __riscv_vfwmmacc_scaled_vv_f32m2_f16m1_bs16(
+    vfloat32m2_t vd, vfloat16m1_t vs1, vfloat16m1_t vs2,
+    vuint16m1_t v0, size_t vl);
+/* OFP8 E4M3 × OFP8 E4M3 → FP32, block size 32 */
+vfloat32m2_t __riscv_vfqwmmacc_scaled_vv_f32m2_f8e4m3m1_bs32(
+    vfloat32m2_t vd, vfloat8e4m3m1_t vs1, vfloat8e4m3m1_t vs2,
+    vuint16m1_t v0, size_t vl);
+/* OFP4 E2M1 × OFP4 E2M1 → FP32, block size 32 */
+vfloat32m2_t __riscv_vf8wmmacc_scaled_vv_f32m2_f4e2m1m1_bs32(
+    vfloat32m2_t vd, vfloat4e2m1m1_t vs1, vfloat4e2m1m1_t vs2,
+    vuint16m1_t v0, size_t vl);
+
+/* Integer-input microscaled (Int × Int × MX scale → FP):
+   no _scaled qualifier — these instructions only exist in MX form. */
+
+/* MXINT8 → FP16, block size 32 */
+vfloat16m1_t __riscv_vfwimmacc_vv_f16m1_i8m1_bs32(
+    vfloat16m1_t vd, vint8m1_t vs1, vint8m1_t vs2,
+    vuint16m1_t v0, size_t vl);
+/* MXINT8 → FP32, block size 32 */
+vfloat32m2_t __riscv_vfqwimmacc_vv_f32m2_i8m1_bs32(
+    vfloat32m2_t vd, vint8m1_t vs1, vint8m1_t vs2,
+    vuint16m1_t v0, size_t vl);
+/* MXINT4 → FP64, block size 32 */
+vfloat64m4_t __riscv_vf8wimmacc_vv_f64m4_i8m1_bs32(
+    vfloat64m4_t vd, vint8m1_t vs1, vint8m1_t vs2,
+    vuint16m1_t v0, size_t vl);
+--
+
+The scale-format is implied by the input data type per the encoding maps in
+<<integrated-matrix-microscaling>>; software does not select the scale
+format separately.
+
 ===== VLEN-portable code
 
 Because MUL_C = VLEN / (SEW × λ²), the accumulator register-group multiplier
