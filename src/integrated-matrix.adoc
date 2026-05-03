@@ -87,7 +87,7 @@ The tile dimensions follow from the widening and LMUL settings:
 |===
 | Quantity                              | Definition
 
-| L_A = LMUL × VLEN ÷ (SEW ÷ W)         | Total A or B tile elements across LMUL registers.  L_A is a local helper used only in this table.
+| L_A = LMUL × VLEN ÷ (SEW ÷ W)         | Total elements in the A tile (or, equivalently, in the B^T^ tile) across LMUL registers.  L_A is a local helper used only in this table.
 | K_eff = λ × W × LMUL                  | Effective shared-K dimension of the multiply-accumulate.
 | M = N = L_A ÷ K_eff                   | Rows and columns of the square accumulator tile.
 |===
@@ -96,7 +96,10 @@ NOTE: MUL_C = VLEN ÷ (SEW × λ²) is independent of both W and LMUL; the C reg
 
 The elements in the vector registers are contiguous along the K direction (with λ such elements per single vector register), as depicted in
 <<ime-geometry-fig>>. Tile A and C elements are stored in row-major order while tile B^T^
-elements are stored in column-major order. This choice allows the implementation of the
+elements are stored in column-major order.
+Throughout this chapter, "the B tile" is used as shorthand for the
+in-register tile that holds B^T^; it is the source of `vs2` for every
+matrix multiply-accumulate instruction. This choice allows the implementation of the
 matrix tile multiplication as inner product (e.g., a systolic array) or outer product and
 simplifies the implementation of high-rank updates based on outer products.
 
