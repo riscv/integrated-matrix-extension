@@ -33,13 +33,13 @@ The geometry of the multiplier and the tiles is defined by the new `vtype` field
 
 The Zvvm family uses the parameter `W` to describe both the arithmetic widening ratio
 and the corresponding packing of input elements within each `SEW`-wide storage position.
+The accumulator C always has element width `SEW`, regardless of `W`.
 
 When `W = 1`, the instruction is _non-widening_: each input element has width `SEW`,
-no packing occurs, and the accumulator C also has width `SEW`.
+and no packing occurs.
 
 When `W > 1`, the instruction is _widening_: each input element has width `SEW/W`,
 and `W` such narrow input elements are packed into each `SEW`-wide storage position.
-The accumulator C still has width `SEW`.
 
 Thus, "packing" refers to the storage layout of the inputs in the vector registers,
 whereas "widening" refers to the arithmetic relationship between the input element width
