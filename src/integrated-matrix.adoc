@@ -1578,6 +1578,43 @@ void __riscv_vmtts_v_f32m1 (float    *base, size_t ld, vfloat32m1_t vs3, size_t 
 void __riscv_vmtts_v_f64m1 (double   *base, size_t ld, vfloat64m1_t vs3, size_t vl);
 --
 
+The tile load/store intrinsics are also defined for the alternate-format
+input vector types (OFP4, OFP8, BF16, Int4) so that input tiles can be
+loaded and stored without a `vreinterpret`.  The element width follows
+the underlying storage width: 8 bits for OFP8 and 4 bits for OFP4 / Int4.
+The base-pointer type is `uint8_t *` for OFP8 (and for OFP4 / Int4 packed
+into bytes).
+
+[source,c]
+--
+/* OFP8 — order-preserving load/store: */
+vfloat8e4m3m1_t __riscv_vmtl_v_f8e4m3m1 (const uint8_t *base, size_t ld, size_t vl);
+vfloat8e5m2m1_t __riscv_vmtl_v_f8e5m2m1 (const uint8_t *base, size_t ld, size_t vl);
+void __riscv_vmts_v_f8e4m3m1 (uint8_t *base, size_t ld, vfloat8e4m3m1_t vs3, size_t vl);
+void __riscv_vmts_v_f8e5m2m1 (uint8_t *base, size_t ld, vfloat8e5m2m1_t vs3, size_t vl);
+
+/* OFP8 — transposing load/store: */
+vfloat8e4m3m1_t __riscv_vmttl_v_f8e4m3m1 (const uint8_t *base, size_t ld, size_t vl);
+void __riscv_vmtts_v_f8e5m2m1 (uint8_t *base, size_t ld, vfloat8e5m2m1_t vs3, size_t vl);
+
+/* OFP4 / Int4 — order-preserving load/store: */
+vfloat4e2m1m1_t __riscv_vmtl_v_f4e2m1m1 (const uint8_t *base, size_t ld, size_t vl);
+vint4m1_t       __riscv_vmtl_v_i4m1     (const uint8_t *base, size_t ld, size_t vl);
+vuint4m1_t      __riscv_vmtl_v_u4m1     (const uint8_t *base, size_t ld, size_t vl);
+void __riscv_vmts_v_f4e2m1m1 (uint8_t *base, size_t ld, vfloat4e2m1m1_t vs3, size_t vl);
+void __riscv_vmts_v_i4m1     (uint8_t *base, size_t ld, vint4m1_t       vs3, size_t vl);
+void __riscv_vmts_v_u4m1     (uint8_t *base, size_t ld, vuint4m1_t      vs3, size_t vl);
+
+/* BFloat16 — order-preserving load/store: */
+vbfloat16m1_t __riscv_vmtl_v_bf16m1 (const __bf16 *base, size_t ld, size_t vl);
+void __riscv_vmts_v_bf16m1 (__bf16 *base, size_t ld, vbfloat16m1_t vs3, size_t vl);
+--
+
+The transposing tile load/store intrinsics (`vmttl.v` / `vmtts.v`) follow
+the same pattern; replace `vmtl` / `vmts` with `vmttl` / `vmtts`.
+All masking (`_m`) and immediate-lambda (`_L{N}`) qualifiers extend to
+these alternate-format intrinsics on the same orthogonal basis.
+
 When an immediate lambda override is required, a `_L{N}` variant encodes the
 lambda value (N ∈ {1, 2, 4, 8, 16, 32, 64}) directly in the intrinsic name.
 Because the lambda value maps to a 3-bit instruction-immediate field, the
