@@ -29,7 +29,7 @@ The Zvvm family of Integrated Matrix extensions consists of the following extens
 
 ==== Matrix tile multiplication geometry
 
-The geometry of the multiplier and the tiles is defined by the new `lambda` (λ) field, which is encoded in 3 bits in the `vtype` CSR, the existing `vtype` fields `LMUL`, `SEW`, and `VLEN`, and the widening factor `W` defined by instruction opcode.
+The geometry of the multiplier and the tiles is defined by the new `lambda` (λ) field, which is encoded in 3 bits in the `vtype` CSR, in combination with the per-instruction widening factor `W` and the standard vector-configuration values `LMUL`, `SEW`, and `VLEN`.
 
 The Zvvm family uses the widening factor `W` to describe both the arithmetic widening ratio
 and the corresponding packing of input elements within each `SEW`-wide element group.
@@ -47,11 +47,15 @@ whereas "widening" refers to the arithmetic relationship between the input eleme
 and the accumulator element width. In this specification, these two views are coupled by
 the same parameter `W`.
 
+The packed layout of `W` narrow input elements within one `SEW`-wide storage position
+is an _element group_ in the sense of the base RISC-V V vector specification, with an
+element-group size (`EGS`) of `W`.
+
 Matrix tiles are represented using the existing RISC-V V register file and its configuration state.
 The three matrices in the multiply-accumulate operation C ← A × B^T^ + C are stored as follows:
 
 * The _accumulator_ C is stored in a vector register group with element width `SEW`.
-  Its its effective register group multiplier, EMUL_C, is determined by the tile geometry:
+  The register-group multiplier of the C register group, EMUL_C, is the effective LMUL (EMUL) used for that group; it is determined by the tile geometry rather than by `vtype.LMUL`:
   EMUL_C = (VLEN / SEW) / λ^2^, where λ is the tile-layout parameter decoded from the `lambda[2:0]` field in `vtype`.
   The C register group may start at any vector register index that is EMUL_C-aligned.
   λ^2^ must divide (VLEN / SEW) such that
@@ -132,10 +136,10 @@ the output token is dropped.
 
 ==== Computational extensions
 
-Table <<tbl-subextensions>> lists the computational extensions in the Zvvm family which are not related to microscaling.
-The extensions specific to microscaling are listed separately in <<mx-subextensions-section>>.
+Table <<tbl-extensions>> lists the computational extensions in the Zvvm family which are not related to microscaling.
+The extensions specific to microscaling are listed separately in <<mx-extensions-section>>.
 
-[#tbl-subextensions]
+[#tbl-extensions]
 .Computational extensions in the Zvvm family of Integrated Matrix extensions.
 [cols="1,1,4,2", options="header"]
 |===
@@ -175,7 +179,7 @@ The extensions specific to microscaling are listed separately in <<mx-subextensi
 
 === Specialized Extensions
 
-The computational extensions in Table <<tbl-subextensions>> can be combined in many ways,
+The computational extensions in Table <<tbl-extensions>> can be combined in many ways,
 depending on the target workload and implementation goals.
 This section defines specialized Zvvm extensions as useful and interoperable
 bundles of existing computational extensions for major application domains.
@@ -239,7 +243,7 @@ The `Zvvaimlfp` extension includes:
 
 Implementations targeting `Zvvaimlfp` may also support OFP4-derived widening extensions
 such as `Zvvofp4ofp8mm`, `Zvvofp4fp16mm`, `Zvvofp4bf16mm`, and `Zvvofp4fp32mm`,
-as well as microscaling-specific extensions listed in <<mx-subextensions-section>>.
+as well as microscaling-specific extensions listed in <<mx-extensions-section>>.
 
 ==== Zvvaimlint
 
@@ -870,7 +874,7 @@ where M = N = VLEN ÷ (SEW × λ).  Because M × R = (VLEN ÷ (SEW × λ)) ×
 regardless of configuration.
 
 [#ime-mx-v0-lanes]
-.Example for the use of microscales in a 4-lane setup for two blocks per row / column. The red lines symbolize the split of the VRs across the lanes. The R-strided scales distribution in `v0` leads to the correct lane-wise block scales layout.
+.Example for the use of microscales in a 4-lane setup for two blocks per row / column. The red lines symbolize the split of the vector register group across the lanes. The R-strided scales distribution in `v0` leads to the correct lane-wise block scales layout.
 image::png/ime-mx-v0-lanes.png[width="69%", align="center"]
 
 **Capacity proof:**
@@ -1115,7 +1119,7 @@ each scale array with the correct tile stride, then `vzip.vv` pairs them:
 
 Microscaling extensions that add block-scaled variants of the narrow
 input formats (OFP4, OFP8, Int4, Int8) are listed separately in
-<<tbl-mx-subextensions>>.
+<<tbl-mx-extensions>>.
 All currently defined microscaling extensions use the E8M0 scale format.
 
 [#zvvmtls,reftext=Load/store instructions for matrix tiles]
@@ -1148,12 +1152,12 @@ The tile load and store instructions make use of the following parameters from t
 * λ — selected lambda, read from `lambda[2:0]` in `vtype`
 
 When loading A or B input tiles, `vmtl.v` and `vmttl.v` shall be used with SEW equal to the element width of the C accumulator tile.
-<<#ime-load-store-geometry>> illustrates the memory to VR load for both row-major and column-major order for a tile with LMUL=1.
+<<#ime-load-store-geometry>> illustrates the memory-to-vector-register-group load for both row-major and column-major order for a tile with LMUL=1.
 Physically both transfers are identical: they move contiguous segments of length _linesize_ = λ × LMUL with a stride of LD between them.
-The tile load/store instructions interpret the memory layout according to the specified leading dimension, but the resulting data layout in the VR is the same regardless of whether the source/destination matrix is stored in row-major or column-major order.
+The tile load/store instructions interpret the memory layout according to the specified leading dimension, but the resulting data layout in the vector register group is the same regardless of whether the source/destination matrix is stored in row-major or column-major order.
 
 [#ime-load-store-geometry]
-.Loading a matrix tile from memory for LMUL=1. The matrix is laid out linearly in memory, the leading dimension LD specifies its row size (a) or column size (b). Element indices represent the offset of the elements in memory. Blue arrows indicate the data ordering in memory/VR.
+.Loading a matrix tile from memory for LMUL=1. The matrix is laid out linearly in memory, the leading dimension LD specifies its row size (a) or column size (b). Element indices represent the offset of the elements in memory. Blue arrows indicate the data ordering in memory and in the vector register group.
 image::png/ime-load-store-geometry.png[align="center"]
 
 If (rs2) = 0, then the leading dimension LD is set to the _natural dimension_ of λ × LMUL.
@@ -3983,8 +3987,8 @@ Included in::
 |===
 
 
-[#mx-subextensions-section]
-=== Microscaling extensions
+[#mx-extensions-section]
+=== Microscaling Subextensions
 
 Each microscaling extension enables the `vm=0` / `v0.scale` encoding for
 a specific (input format, accumulator format, block size) combination.
@@ -3996,10 +4000,10 @@ The integer MX extensions (`Zvvxi*mm`, `Zvvxni*mm`) do not imply a
 base extension: `vfwimmacc.vv` and `vfqimmacc.vv` have no non-MX
 FP-accumulate form (the `vm=1` encoding of those opcodes is the existing
 integer-accumulate `vwmmacc.vv` / `vqmmacc.vv`).
-The block size and implication relationships are listed in <<tbl-mx-subextensions>>.
+The block size and implication relationships are listed in <<tbl-mx-extensions>>.
 
-[#tbl-mx-subextensions]
-.Microscaling subextensions
+[#tbl-mx-extensions]
+.Microscaling extensions
 [cols="1,1,1,3,3", options="header"]
 |===
 |Extension        | BS | Implies          | Multiplicand Types                | Accumulator Type
