@@ -715,7 +715,24 @@ If `rnd=xct`, the partial sum `S` is retained in sufficient internal precision s
 Supported values of `G`, `psm`, and `rnd` by an implementation may depend on `SEW`, `W`, and `lambda`.
 An implementation must disclose all supported combinations by publishing a table of its mappings from (`SEW`, `W`, `lambda`) to (`G`, `psm`, `rnd`).
 For each entry with `psm=1`, the disclosure must additionally identify the reduction algorithm and the values of any parameters it takes.
-The floating-point result of a matrix multiply-accumulate instruction is fully determined once the implementation’s supported mapping from (`SEW`, `W`, `lambda`) to (`G`, `psm`, `rnd`) — together with the disclosed reduction algorithm and its parameters at any `psm=1` entry — is known.
+
+An implementation that discloses `psm=1` for any (`SEW`, `W`, `lambda`) entry should additionally publish a SAIL fragment that provides a concrete definition of `fp_bna_add` (and of any companion functions referenced by it) for that entry.
+When composed with the shared SAIL pseudocode of this specification, the published fragment shall reproduce, bit-exactly, the result that the implementation computes for every legal input.
+The published fragment should identify the version of this specification against which it was authored.
+A SAIL fragment in this form constitutes a machine-executable disclosure of the reduction algorithm and is the form expected by the conformance and certification programmes.
+
+[NOTE]
+====
+The SAIL fragment serves three purposes that natural-language disclosure cannot:
+
+. *Unambiguous semantics.* A SAIL definition fixes operand widths, alignment, rounding, ordering, and parameter values without the interpretation overhead of prose.
+. *Direct integration with conformance testing.* The architectural model in this specification is itself SAIL-based; a published implementation fragment plugs into the same model with no glue code, so an architectural test suite can exercise the implementor's own definition of `fp_bna_add` to verify match against hardware.
+. *Reproducible cross-implementation comparison.* Two implementors disclosing nominally the same algorithm can settle disputes by diffing their SAIL fragments rather than re-deriving equivalence from prose.
+
+An implementation that discloses RVBNA at the standard parameters typically satisfies this obligation by referencing the SAIL fragment published alongside the RVBNA specification itself.
+====
+
+The floating-point result of a matrix multiply-accumulate instruction is fully determined once the implementation’s supported mapping from (`SEW`, `W`, `lambda`) to (`G`, `psm`, `rnd`) — together with the disclosed reduction algorithm and its parameters (and, where published, the SAIL fragment) at any `psm=1` entry — is known.
 
 The number of rounding operations per output element of C is (λ × `LMUL`) ÷ `G` if no rounding is applied to the reduced partial sum before accumulation, and 2 × (λ × `LMUL`) ÷ `G` if the reduced partial sum is rounded before accumulation into the running value of C.
 
