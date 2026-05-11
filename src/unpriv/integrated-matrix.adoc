@@ -597,7 +597,7 @@ The number of groups in the computation of stem:[C_{i,j}] above is `λ` ÷ `G`.
 
 ** If `psm=0`, the partial sum `S` is formed using exact computation: the contributing products and sums are computed in sufficiently precise internal form, without rounding to the C accumulator format, until the next rounding step defined by this specification.
 
-** If `psm=1`, the exact products belonging to the group are accumulated in a bulk-normalized representation according to the https://github.com/riscv/riscv-isa-manual/blob/03c4abb8b4b276938c3fd96e3eb53c5840e3c24b/src/zvdota.adoc#risc-v-bulk-normalization-algorithm[RVBNA Algorithm], or in an equivalent representation producing the same numerical result. (The details of how the various parameters of RVBNA are set are described below.)
+** If `psm=1`, the partial sum `S` is formed using an _implementation-defined_ non-exact reduction of the group's products. The reduction may use any internal representation chosen by the implementation. An implementation that supports `psm=1` for a given (`SEW`, `W`, `lambda`) shall publish, alongside its (`G`, `psm`, `rnd`) disclosure, the specific reduction algorithm and the values of any parameters it takes; two implementations are bit-exactly compatible at `psm=1` only if both disclose the same algorithm with the same parameters.
 
 * Once the partial sum `S` is computed, and before it is accumulated into the result C, it is treated according to an implementation-defined parameter `rnd`.
 
@@ -616,32 +616,41 @@ If `rnd=xct`, the partial sum `S` is retained in sufficient internal precision s
 
 Supported values of `G`, `psm`, and `rnd` by an implementation may depend on `SEW`, `W`, and `lambda`.
 An implementation must disclose all supported combinations by publishing a table of its mappings from (`SEW`, `W`, `lambda`) to (`G`, `psm`, `rnd`).
-The floating-point result of a matrix multiply-accumulate instruction is fully determined once the implementation’s supported mapping from (`SEW`, `W`, `lambda`) to (`G`, `psm`, `rnd`) is known.
+For each entry with `psm=1`, the disclosure must additionally identify the reduction algorithm and the values of any parameters it takes.
 
-The number of rounding operations per output element of C is (λ × `LMUL`) ÷ `G` if no rounding is applied to the reduced partial sum before accumulation, and 2 × (λ × `LMUL`) ÷ `G` if the reduced partial sum is rounded before accumulation into the running value of C.
-
-The RISC-V Bulk Normalization Algorithm (RVBNA) is characterized by multiple parameters:
-
-- `p`: the size of each factor's significand (significand product is `2p`-bit wide, signed product is `2p+1`-bit wide)
-- `e`: the size of each factor's biased exponent (the bias is `2^(e-1) - 1`)
-- `q`: the size of the result's significand
-- `f`: the size of the result's biased exponent (the bias is `2^(f-1) - 1`)
-- `n`: the number of products accumulated
-
-(The algorithm specifies two other parameters, `o` and `g`, but those are derived from the parameters `n`.)
-For all `Zvvfmm` extensions, `n` = `G × W`.
-Meanwhile, `q` and `f` are readily derived from the output type. For example, if the output type is single-precision IEEE floating-point (binary32), then `f` = 8 and `q` = 24 (including the implied `1`).
-Similarly, `p` and `e` are readily derived from the input types. For example, if the input type is half-precision IEEE floating-point (binary16), then `e` = 5 and `p` = 11 (including the implied `1`).
-
-The `Zvvfmm` extensions specify their own parameter `rnd` to control rounding of the dot-product before accumulation.
-Therefore, the final round-to-odd step in RVBNA is only used if `rnd=rto`. Otherwise, the appropriate rounding according to `rnd` is used.
-It is expected that most implementations that choose `psm=1` for a (`SEW`, `W`, `lambda`) combination will also choose `rnd=rto` for the same combination. 
+An implementation that discloses `psm=1` for any (`SEW`, `W`, `lambda`) entry should additionally publish a SAIL fragment that provides a concrete definition of `fp_bna_add` (and of any companion functions referenced by it) for that entry.
+When composed with the shared SAIL pseudocode of this specification, the published fragment shall reproduce, bit-exactly, the result that the implementation computes for every legal input.
+The published fragment should identify the version of this specification against which it was authored.
+A SAIL fragment in this form constitutes a machine-executable disclosure of the reduction algorithm and is the form expected by the conformance and certification programmes.
 
 [NOTE]
 ====
-RVBNA is being augmented to handle asymmetric (mixed) data types. The `Zvvfmm` extensions will adopt that augmented definition.
+The SAIL fragment serves three purposes that natural-language disclosure cannot:
 
-A Zvvm implementation can produce the exact same results as the analogous Zvtm implementation when operating on 16- and 8-bit inputs by setting `psm=1`, `rnd=rto`, and choosing a suitable architectural value of `G`: `G=2` for 16-bit inputs with 32-bit outputs, and `G=1` for 8-bit inputs with 32-bit outputs.
+. *Unambiguous semantics.* A SAIL definition fixes operand widths, alignment, rounding, ordering, and parameter values without the interpretation overhead of prose.
+. *Direct integration with conformance testing.* The architectural model in this specification is itself SAIL-based; a published implementation fragment plugs into the same model with no glue code, so an architectural test suite can exercise the implementor's own definition of `fp_bna_add` to verify match against hardware.
+. *Reproducible cross-implementation comparison.* Two implementors disclosing nominally the same algorithm can settle disputes by diffing their SAIL fragments rather than re-deriving equivalence from prose.
+
+An implementation that discloses RVBNA at the standard parameters typically satisfies this obligation by referencing the SAIL fragment published alongside the RVBNA specification itself.
+====
+
+The floating-point result of a matrix multiply-accumulate instruction is fully determined once the implementation’s supported mapping from (`SEW`, `W`, `lambda`) to (`G`, `psm`, `rnd`) — together with the disclosed reduction algorithm and its parameters (and, where published, the SAIL fragment) at any `psm=1` entry — is known.
+
+The number of rounding operations per output element of C is (λ × `LMUL`) ÷ `G` if no rounding is applied to the reduced partial sum before accumulation, and 2 × (λ × `LMUL`) ÷ `G` if the reduced partial sum is rounded before accumulation into the running value of C.
+
+[NOTE]
+====
+A common choice of `psm=1` reduction is the _RISC-V Bulk Normalization Algorithm_ (RVBNA), defined as part of the Zvdota extension.  An implementation adopting RVBNA discloses it as the `psm=1` algorithm and publishes the standard RVBNA parameters (per-factor significand and biased-exponent widths `p` / `e`, result significand and biased-exponent widths `q` / `f`, and the per-group accumulation count `n`).  For Zvvfmm instructions the natural binding is `n = G × W`, with `q`/`f` determined by the output format and `p`/`e` by the input format(s).
+
+The standard RVBNA description includes a terminal round-to-odd step that produces a value in the result format.  When an implementation discloses RVBNA as its `psm=1` algorithm, that terminal round-to-odd is taken only if it also discloses `rnd=rto` for the same (`SEW`, `W`, `lambda`); otherwise the rounding implied by the disclosed `rnd` value applies in its place.  Most implementations that adopt RVBNA are therefore expected to also disclose `rnd=rto`.
+
+Implementations are free to declare any other `psm=1` reduction (for example, a Kulisch-style fixed-point accumulator, or a different bulk-normalised scheme with different parameter choices) provided they publish the algorithm and its parameters as required by the disclosure rule above.
+====
+
+
+[NOTE]
+====
+A Zvvm implementation can produce the exact same results as the analogous Zvtm implementation when operating on 16- and 8-bit inputs by disclosing `psm=1` with RVBNA at the standard parameters described above, `rnd=rto`, and a suitable architectural value of `G`: `G=2` for 16-bit inputs with 32-bit outputs, and `G=1` for 8-bit inputs with 32-bit outputs.
 For input element widths of 32 bits or greater, compatibility with the analogous Zvtm instruction is obtained with `G=1`, `psm=0`, and `rnd=frm` so that each group contains a single product and the partial sum `S` is that product rounded according to `frm`.
 
 In a *systolic-array* datapath, `G` is typically 1: each sub-dot-product is rounded and added to C immediately, yielding λ × LMUL rounding additions per output element.
@@ -655,7 +664,7 @@ The rounding of partial sum `S` is optional in order to match established practi
 ====
 
 Two conforming implementations may produce floating-point results that differ for identical inputs.
-Bit-exact reproducibility of floating-point matrix multiply-accumulate results across different implementations is therefore guaranteed only when both implementations support the same (`SEW`, `W`, `lambda`) → (`G`, `psm`, `rnd`) mapping.
+Bit-exact reproducibility of floating-point matrix multiply-accumulate results across different implementations is therefore guaranteed only when both implementations support the same (`SEW`, `W`, `lambda`) → (`G`, `psm`, `rnd`) mapping and, at any `psm=1` entry, also disclose the same reduction algorithm with the same parameters.
 
 Floating-point exception flags (inexact, overflow, underflow, invalid, etc.) are accumulated into `fflags`; the order in which individual exceptions are raised within a single instruction execution is implementation-defined.
 
@@ -2107,9 +2116,12 @@ val fp_internal_zero : unit -> fp_internal
 // Exact internal addition of two abstract internal FP values.
 val fp_internal_add : (fp_internal, fp_internal) -> fp_internal
 
-// Bulk-normalized accumulation step.
-// This may be implemented using RVBNA or any equivalent representation
-// producing the same numerical result.
+// Non-exact reduction step (psm=1).  The implementation chooses the
+// reduction algorithm and discloses it; common choices include RVBNA,
+// other bulk-normalised fixed-point schemes, and Kulisch-style
+// accumulators.  The SAIL leaves the operation abstract here: two
+// implementations producing different numerical results may both be
+// conforming, provided each discloses its algorithm and parameters.
 val fp_bna_add : (fp_internal, fp_internal) -> fp_internal
 
 // Group partial sum S for one output element.
