@@ -55,12 +55,17 @@ Matrix tiles are represented using the existing RISC-V V register file and its c
 The three matrices in the multiply-accumulate operation C ← A × B^T^ + C are stored as follows:
 
 * The _accumulator_ C is stored in a vector register group with element width `SEW`.
-  The register-group multiplier of the C register group, EMUL_C, is the effective LMUL (EMUL) used for that group; it is determined by the tile geometry rather than by `vtype.LMUL`:
+  The register-group multiplier of the C register group is `EMUL_C`, computed from the tile geometry:
   EMUL_C = (VLEN / SEW) / λ^2^, where λ is the tile-layout parameter decoded from the `lambda[2:0]` field in `vtype`.
-  The C register group may start at any vector register index that is EMUL_C-aligned.
-  λ^2^ must divide (VLEN / SEW) such that
-  EMUL_C ∈ {1, 2, 4, 8, 16}.
-  In compliance with the RISC-V "V" extensions, the vector register index for the C register group must be a mulitple of EMUL_C, including for EMUL_C = 16.
+  λ^2^ must divide (VLEN / SEW), giving EMUL_C ∈ {1, 2, 4, 8, 16}.
+  The C base register index must be a multiple of `EMUL_C`.
++
+[NOTE]
+====
+`EMUL_C` plays the same role for the C operand that the per-operand `EMUL` plays for ordinary V instructions: it is the operand's effective register-group multiplier and it dictates the operand's alignment.
+However, `EMUL_C` is derived from the tile geometry (`VLEN`, `SEW`, `λ`) rather than from an `EEW` / `SEW` ratio, and it is independent of `vtype.LMUL`.
+In particular, `EMUL_C = 16` lies outside the value set permitted for the per-operand `EMUL` of base V instructions; the C operand is therefore aligned and indexed analogously to a V `EMUL`-grouped operand but with an extended value range.
+====
 
 * The _input matrices_ A and B are stored in vector register groups with element width determined by the instruction:
   equal to SEW for non-widening variants (`W=1`), and equal to SEW/2, SEW/4, or SEW/8 for widening variants (`W=2`, `W=4`, or `W=8`), with the narrower input elements packed within each `SEW`-wide storage position.
@@ -92,7 +97,7 @@ Integer accumulation wraps modulo 2^SEW^.
 |M = N      | (VLEN ÷ SEW) ÷ λ     | rows = columns of the square accumulator tile
 |===
 
-The accumulator register group has effective group multiplier `EMUL_C` = `VLEN` ÷ (`SEW` × `λ`²), independent of both `W` and `LMUL`.
+NOTE: `EMUL_C` is independent of both `W` and `LMUL`; the C register group always occupies `EMUL_C` registers regardless of how A and B are configured.
 
 The elements in each vector register are contiguous in the inner (`K`) direction, as depicted in
 <<ime-geometry-fig>>. Tiles A, B, and C elements are stored in row-major order.
