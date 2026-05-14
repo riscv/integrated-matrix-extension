@@ -1473,6 +1473,100 @@ in `vtype.lambda[2:0]` (the field is WARL).  Software that needs to enumerate
 all supported lambda values must do so through `vsetvl` write-readback at
 the relevant SEW; see <<_vlen_portable_code>>.
 
+===== Establishing lambda from C: `__riscv_vsetlambda`
+
+[source,c]
+----
+size_t __riscv_vsetlambda(size_t requested_lambda);
+----
+
+`__riscv_vsetlambda` is the C-level primitive for writing the `lambda` field
+of `vtype` and for reading the lambda value the matrix engine will use for
+subsequent tile and multiply-accumulate operations.
+
+If `requested_lambda` is a positive power of two in {1, 2, 4, 8, 16, 32, 64},
+the intrinsic writes the corresponding 3-bit encoding into `vtype.lambda`,
+preserves all other `vtype` fields and `vl`, and returns the lambda value
+actually established.
+Because `lambda` is WARL, the returned value may be smaller than the
+request: if the implementation does not support `requested_lambda` for
+the current (`VLEN`, `SEW`, `LMUL`), the hardware clamps to the largest
+supported value below `requested_lambda` and that clamped value is
+returned.
+
+If `requested_lambda` is 0, `__riscv_vsetlambda` is a read-only query: it
+does not write `vtype` and returns the currently active lambda value;
+a return value of 0 indicates that lambda is in its not-configured
+encoding (`lambda[2:0]` = `0b000`).
+
+Software shall not assume that lambda set by a prior `__riscv_vsetlambda`
+persists across any operation that may modify `SEW` or `LMUL`.
+The set of supported lambda values is a function of
+(`VLEN`, `SEW`, `LMUL`); when `SEW` or `LMUL` changes — including through
+a `vsetvli` or `vsetivli` that does not write the lambda bits — the
+hardware may re-clamp lambda under WARL.
+Portable code re-establishes (or re-reads) lambda after any `vsetvl`-family
+call by calling `__riscv_vsetlambda` and checking the return value.
+
+[NOTE]
+====
+*Compiler-modelling guidance (non-normative).*
+
+A toolchain whose `vsetvl` pass tracks `vtype` as a tuple of
+(`SEW`, `LMUL`, `vma`, `vta`, `lambda`, `VL`) should model
+`__riscv_vsetlambda` as follows:
+
+[cols="2,2,2,3", options="header"]
+|===
+| Argument | DEFs | USEs | Notes
+
+| compile-time `0`
+| (none)
+| `vtype.lambda`
+| Pure read; the compiler may emit a single `csrr`-style read of `vtype`, extract the lambda field, and return.  Subject to standard read-only motion optimisations.
+
+| compile-time non-zero
+| `lambda`
+| `SEW`, `LMUL`
+| Standard re-establish-and-probe.  Tile and multiply-accumulate operations using `lambda` cannot be hoisted across this call.
+
+| runtime value
+| `lambda` (may-DEF)
+| `SEW`, `LMUL`
+| The compiler cannot prove `requested_lambda != 0` in general; conservative may-DEF has the same dataflow effect as DEF for ordering and prevents hoisting of `lambda`-using operations.
+|===
+
+`vsetvli` and `vsetivli` should be modelled as may-DEFs of `lambda`
+even though they do not write the `lambda` field directly: a change to
+`SEW` or `LMUL` can cause the hardware to re-clamp lambda under WARL,
+so software (and the compiler) cannot rely on lambda surviving across
+those instructions.
+`vsetvl` (register form) is a full vtype write and is therefore a hard
+DEF of `lambda`.
+
+The corollary is that the standard `vsetvl`-elimination optimisation
+generalises to lambda without special-casing: a `__riscv_vsetlambda`
+that is immediately preceded by another `__riscv_vsetlambda` with the
+same argument, with no intervening vtype-affecting operation, is dead.
+
+Two read-only inspection patterns are idiomatic:
+
+[source,c]
+----
+/* (1) Confirm lambda survived a configuration change. */
+__riscv_vsetvli(new_avl, /* new SEW */, /* new LMUL */);
+size_t now = __riscv_vsetlambda(0);
+if (now != target_lambda) {
+    now = __riscv_vsetlambda(target_lambda);
+}
+
+/* (2) Save / restore around a foreign call that may perturb vtype. */
+size_t saved = __riscv_vsetlambda(0);
+external_function();
+__riscv_vsetlambda(saved);
+----
+====
+
 ===== Tile load and store (Zvvmtls) and transposed tile load and store (Zvvmttls)
 
 The load intrinsics accept a base pointer, a leading-dimension `ld` in
