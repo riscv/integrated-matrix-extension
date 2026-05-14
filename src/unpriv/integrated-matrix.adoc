@@ -3676,7 +3676,9 @@ required by the matrix multiplier.
 This instruction is used when a B tile is stored in row-major order, or when an A or C tile
 is stored in column-major order in memory.
 _rs1_ holds the matrix base address; _rs2_ holds the leading dimension `LD` in elements.
-if _rs2_ holds zero (0), the leading dimension `LD` is set to λ × LMUL.
+If _rs2_ holds zero (0), the leading dimension `LD` is set to VLEN / (SEW × λ),
+which is the natural maximum width of a B tile and height of an A or C tile.
+The parameter _λ_ refers to the result matrix tile of the transposing load operation.
 When _Lλ_ is specified, it overrides `lambda[2:0]` from `vtype` for this instruction.
 Inactive elements (masked off) are not updated unless `vtype.vma`=1 (mask-agnostic), in which case they may be overwritten with 1s.
 Tail elements (index ≥ VL) are not updated unless `vtype.vta`=1 (tail-agnostic), in which case they may be overwritten with 1s.
@@ -3712,7 +3714,7 @@ let vm_val         = read_vmask(num_elem, vm, zvreg);
 let linesize : int = eff_lambda * LMUL;
 
 if LD == 0 then {
-  LD = eff_lambda * LMUL;
+  LD = elems_per_reg / eff_lambda;
 }
 
 foreach (i from 0 to (num_elem - 1)) {
@@ -3777,7 +3779,8 @@ Description::
 Stores a 2D matrix tile from vector register groups to memory, applying the inverse transposition
 of `vmttl.v`.
 _rs1_ holds the matrix base address; _rs2_ holds the leading dimension `LD` in elements.
-if _rs2_ holds zero (0), the leading dimension `LD` is set to λ × LMUL.
+If _rs2_ holds zero (0), the leading dimension `LD` is set to VLEN / (SEW × λ).
+The parameter _λ_ refers to the source matrix tile of the transposing store operation.
 When _Lλ_ is specified, it overrides `lambda[2:0]` from `vtype` for this instruction.
 Inactive elements (masked off) are not written to memory and do not raise exceptions.
 Tail elements (index ≥ VL) are not written to memory and do not raise exceptions.
@@ -3812,7 +3815,7 @@ let vm_val         = read_vmask(num_elem, vm, zvreg);
 let linesize : int = eff_lambda * LMUL;
 
 if LD == 0 then {
-  LD = eff_lambda * LMUL;
+  LD = elems_per_reg / eff_lambda;
 }
 
 foreach (i from 0 to (num_elem - 1)) {
