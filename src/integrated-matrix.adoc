@@ -1161,7 +1161,8 @@ image::png/ime-vmtls-lmul.png[align="center", width="90%"]
 === Zvvmttls: Extension for loading and storing vector register groups interpreted as transposed 2D matrix tiles
 
 The `Zvvmttls` extension provides instructions that transfer transposed 2D matrix tiles between memory and the vector register file without requiring a separate repacking step.
-Memory layout and tile geometry for `Zvvmttls` follows those established for the `Zvvmtls` extension.
+Memory layout and tile geometry for `Zvvmttls` follows those established for the `Zvvmtls` extension
+with the difference that the transpose operation requires SEW to be set to the actual element width.
 
 ==== Instructions
 
@@ -3675,7 +3676,7 @@ Loads a 2D matrix tile from memory and transposes it into the vector register la
 required by the matrix multiplier.
 This instruction is used when a B tile is stored in row-major order, or when an A or C tile
 is stored in column-major order in memory.
-_rs1_ holds the matrix base address; _rs2_ holds the leading dimension `LD` in elements.
+_rs1_ holds the matrix base address; _rs2_ holds the leading dimension `LD` in elements of width SEW.
 If _rs2_ holds zero (0), the leading dimension `LD` is set to VLEN / (SEW × λ),
 which is the natural maximum width of a B tile and height of an A or C tile.
 The parameter _λ_ refers to the result matrix tile of the transposing load operation.
@@ -3778,7 +3779,7 @@ Encoding::
 Description::
 Stores a 2D matrix tile from vector register groups to memory, applying the inverse transposition
 of `vmttl.v`.
-_rs1_ holds the matrix base address; _rs2_ holds the leading dimension `LD` in elements.
+_rs1_ holds the matrix base address; _rs2_ holds the leading dimension `LD` in elements of width SEW.
 If _rs2_ holds zero (0), the leading dimension `LD` is set to VLEN / (SEW × λ).
 The parameter _λ_ refers to the source matrix tile of the transposing store operation.
 When _Lλ_ is specified, it overrides `lambda[2:0]` from `vtype` for this instruction.
