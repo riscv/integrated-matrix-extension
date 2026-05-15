@@ -1164,6 +1164,10 @@ The `Zvvmttls` extension provides instructions that transfer transposed 2D matri
 Memory layout and tile geometry for `Zvvmttls` follows those established for the `Zvvmtls` extension
 with the difference that the transpose operation requires SEW to be set to the actual element width.
 
+[#ime-vmttl-fig]
+.Transposing load examples with LMUL = 1 (left) and LMUL = 2 (right). Indices number elements of width SEW from the row-major order matrix in memory. Light-blue arrows indicate the memory / vector register access order.
+image::png/ime-vmttl-lmul.png[width=100%, align=center, alt="Depiction of transposing load with vmttl for LMUL=1 and LMUL=2."]
+
 ==== Instructions
 
 All tile load/store instructions support two optional operands that follow `rs2` in the assembly syntax:
