@@ -575,13 +575,11 @@ This section specifies how the K~eff~ product terms may be grouped and when inte
 When `W` > `1`, the `W` narrow input-element pairs packed within one accumulator-width (`SEW`-bit) position form a natural computational unit called a _sub-dot-product_.
 The `W` multiplications of (`SEW÷W`)-bit elements are performed and their products summed.
 
-Each product of two (`SEW`÷`W`)-bit values is _exact_ at `SEW` precision: the significand has at most 2 × p~input~ − 1 bits, which fits in the wider `SEW` format.
-The sub-dot-product can therefore be computed with very little loss at `SEW` or wider precision.
-
 There are K~eff~ ÷ `W` = `λ` × `LMUL` sub-dot-products per output element.
 
 When `W` = `1`, each product of two `SEW`-bit values is exact at `2` × `SEW` bits; a sub-dot-product consists of a single product term.
 
+[#accumulation-and-rounding-model]
 ===== Accumulation and rounding model (floating-point)
 
 The resulting value of element stem:[C_{i,j}] for any given `LMUL` must match the value computed by applying a series of multiply-accumulate instructions with `LMUL=1`, in increasing order of vector-register indices.
@@ -627,6 +625,13 @@ An implementation that discloses `psm=1` for any (`SEW`, `W`, `lambda`) entry sh
 When composed with the shared SAIL pseudocode of this specification, the published fragment shall reproduce, bit-exactly, the result that the implementation computes for every legal input.
 The published fragment should identify the version of this specification against which it was authored.
 A SAIL fragment in this form constitutes a machine-executable disclosure of the reduction algorithm and is the form expected by the conformance and certification programmes.
+
+[NOTE]
+====
+The flexibility that `psm=1` grants -- choosing the reduction algorithm and its parameters -- carries a corresponding expectation: that the implementation completes the architectural description by publishing the chosen algorithm. Without such publication, the architectural description of the implementation is incomplete and cannot be exercised against a reference model.
+
+The conformance and certification programmes are the venue in which this expectation is given force. An implementation that does not publish a SAIL fragment for each disclosed `psm=1` entry, or whose published fragment does not reproduce the hardware bit-exactly when composed with the shared SAIL of this specification, cannot be certified as a compliant Zvvfmm implementation. The "should" in the preceding paragraph is therefore the normative form in which the ISA specification expresses what the certification programme treats as a "must".
+====
 
 [NOTE]
 ====
@@ -715,17 +720,17 @@ applied, `v0` is not read, and the `bs` field is ignored.
 
 When microscaling is active (`vm=0`), each output element is computed as:
 
-stem:[C_{m,n} \leftarrow C_{m,n} + \sum_{s=0}^{S-1} \left( \text{scale_A}_{m,s} \times \text{scale_B}_{n,s} \times \left( \sum_{k \in \text{block } s} A_{m,k} \times B_{k,n} \right) \right)]
+stem:[C_{i,j} \leftarrow C_{i,j} + \sum_{s=0}^{L-1} \left( \text{scale_A}_{i,s} \times \text{scale_B}_{j,s} \times \left( \sum_{k \in \text{block}(s)} A_{i,k} \times B_{k,j} \right) \right)]
 
-where S = ⌈K_eff / block_size⌉ is the number of scale blocks per
-row/column, and block _s_ covers elements
-[s × block_size, min((s+1) × block_size, K_eff) − 1].
+where L = ⌈K_eff / block_size⌉ is the number of scale blocks per
+row/column, and block(_s_) covers elements
+[_s_ × block_size, min((_s_+1) × block_size, K_eff) − 1].
 
-stem:[\text{scale_A}_{m,s}] and stem:[\text{scale_B}_{n,s}] are decoded from the
+stem:[\text{scale_A}_{i,s}] and stem:[\text{scale_B}_{j,s}] are decoded from the
 per-block scale fields in `v0` according to the scale format associated
 with the input data type.
 If any decoded scale is NaN, the corresponding output element
-stem:[C_{m,n}] is set to the default NaN regardless of the input element
+stem:[C_{i,j}] is set to the default NaN regardless of the input element
 values.
 
 [#integrated-matrix-scale-formats]
@@ -755,14 +760,26 @@ which sets the output element to NaN via the NaN propagation rule above.
 Implementations shall handle this case as specified — not as an
 implementation-defined result.
 
+====== Arithmetic considerations
+
+The computation of stem:[C_{i,j}] follows similar arithmetic rules as described in <<accumulation-and-rounding-model>>.
+Each block dot product stem:[\sum_{k \in \text{block}(s)} A_{i,k} \times B_{k,j}] is partitioned into consecutive groups of `min`(`G`, `bs` ÷ `W`) sub-dot-products.
+That is, a group never crosses a block boundary.
+The group dot-product is reduced into a partial sum `S` according to the implementation-defined parameter `psm`.
+The partial sum `S` is treated according to the implementation-defined parameter `rnd`.
+The partial sum `S` is scaled by stem:[\text{scale_A}_{i,s} \times \text{scale_B}_{j,s}]. As noted above, this scaling does not intorduce additional rounding.
+Finally, the rounded and scaled partial sum `S` is accumulated into the running value of stem:[C_{i,j}] by computing
+
+stem:[C_{i,j} \leftarrow \text{round}_{\text{frm}}(C_{i,j} + S)].
+
 ===== Scale layout in `v0`
 
 The register `v0` holds paired scale values at an effective element
 width of 16 bits.  Each 16-bit element contains one (scale_A, scale_B)
 pair, regardless of the scale format:
 
-* Lower byte [7:0]: `scale_A` — the block scale for a row of A
-* Upper byte [15:8]: `scale_B` — the block scale for a column of B
+* Lower byte [7:0]: `scale_A` — the block scale for a row of A.
+* Upper byte [15:8]: `scale_B` — the block scale for a column of B^T^.
 
 The interpretation of each 8-bit field is determined by the scale format
 associated with the input data type (see <<integrated-matrix-scale-formats>>).
