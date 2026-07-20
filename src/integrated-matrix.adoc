@@ -70,6 +70,52 @@ beyond the normative text they reference.
 
 ==== Matrix tile multiplication geometry
 
+A _matrix tile_ is a two-dimensional rectangular section of a matrix.
+The goal of the IM-extension is to support the computation of C ← A × B^T^ + C, where A, B, and C are matrix tiles.
+In the computation above, A and B are _input tiles_ and C is called the _accumulator tile_.
+In the IM extension, input and accumulator tiles are stored in vector register groups.
+For any given C ← A × B^T^ + C computation, both A and B input tiles have a common rectangular shape `M` × `K`.
+(We explain below how the `M` and `K` parameters are defined.)
+From the rules of matrix multiplication, the shape of C must be `M` × `M`.
+This means that, in general, the sizes of the input and accumulator vector register groups can be different.
+
+The IM extension grants implementations a certain degree of flexibility in selecting the shape of tiles.
+Given a vector length `VLEN` (also an implementationn choice) and a selected element width `SEW`, the number of elements in a single vector registers is (`VLEN` ÷ `SEW`).
+To define the shape of a tile contained in a single vector registers, we introduce an additional implementation-choice parameter `LAMBDA` that is the width of such tile in elements of `SEW`.
+The height of the tile is then `M` = (`VLEN` ÷ `SEW`) ÷ `LAMBDA`.
+The IM extension imposes two more restrictions on `LAMBDA`. (An additional restriction will be introduced later.)
+First, `LAMBDA`, and consequently `M`, must be a power of 2.
+Second, we must have `M` ≥ `LAMBDA`.
+
+As an example of the implication of the rules for `LAMBDA`, let us consider the case `VLEN` = 512 and `SEW` = 32.
+In this case, (`VLEN` ÷ `SEW`) = 16 and, therefore there are only three possible choices for `LAMBDA`: 1, 2, or 4.
+The corresponding values for `M` are 16, 8, and 4, respectively.
+The three possible configurations in this case are shown in <<ime-single-vec-reg-geometry>>.
+
+[#ime-single-vec-reg-geometry]
+.Geometry of matrix tiles fitting in a single vector register for `VLEN` = 512 and `SEW` = 32. (In general, for (`VLEN` ÷ `SEW`) = 16.) There are three legal choices for the implementation parameter `LAMBDA`, and corresponding `M`. (a) `LAMBDA` = 1, `M` = 16. (b) `LAMBDA` = 2, `M` = 8. (c) `LAMBDA` = 4, `M` = 4.
+image::png/ime-single-vec-reg-geometry.png[width=50%, align=center, alt="Diagram of tile geometry for a single vector register."]
+
+Since the `M` × `K` shape of the input tiles A and B that fit in a single vector register depends on the parameter `LAMBDA`, so does the shape `M` × `M` of the accumulator tile C.
+Correspondingly, the multiplicity of the vector register group holding tile C, `EMUL_C`, is also a function of `LAMBDA`, `EMUL_C` = `M` ÷ `LAMBDA` = (`VLEN` ÷ `SEW`) ÷ `LAMBDA`^2^.
+The three possible configurations for `VLEN` = 512 and `SEW` = 32 are shown in <<ime-emulc-examples>>.
+
+[#ime-emulc-examples]
+.Geometry of the computation of C ← A × B^T^ + C for `VLEN` = 512 and `SEW` = 32. (In general, for (`VLEN` ÷ `SEW`) = 16.) There are three legal choices for the implementation parameter `LAMBDA`, which impacts the shapes of the A, B, and C tiles, including the multiplicity `EMUL_C` of the vector register group holding the accumulator tile C. (a) `LAMBDA` = 1, `M` = 16, `EMUL_C` = 16. (b) `LAMBDA` = 2, `M` = 8, `EMUL_C` = 4. (c) `LAMBDA` = 4, `M` = 4, `EMUL_C` = 1.
+image::png/ime-emulc-examples.png[width=80%, align=center, alt="Diagram of C ← A × B^T^ + C computation for different choices of `LAMBDA`."]
+
+We now introduce the third restriction on `LAMBDA`.
+This (indirect) restriction comes from the 32 vector registers being used to stored tiles A, B, and C.
+To ensure enough space for the input tiles A and B, we force `EMUL_C` ∈ {1, 2, 4, 8, 16}.
+This requires a minimum values of `LAMBDA` when (`VLEN` ÷ `SEW`) is large. 
+For example, if (`VLEN` ÷ `SEW`) = 32, a choice of `LAMBDA` = 1 would results in `EMUL_C` = 32, leaving no spaces for the A and B tiles. 
+Therefore, in this case the legal values for `LAMBDA` are only 2 and 4, leading to corresponding values of `EMUL_C` of 8 and 2, respectively.
+The legal choices of `LAMBDA`, and corresponding values of `EMUL_C`, for all possible values of (`VLEN` ÷ `SEW`) are shown in <<ime-emulc-table>>.
+
+[#ime-emulc-table]
+.Table of legal implementation choices of `LAMBDA` for different values of `L` = (`VLEN` ÷ `SEW`). The entries in the table show the resulting multiplicity, |C| = `EMUL_C` of the vector register group holding tile C.
+image::png/ime-emulc-table.png[width=80%, align=center, alt="Table of choices of `LAMBDA` as a function of (`VLEN` ÷ `SEW`)."]
+
 The geometry of the multiplier and the tiles is defined by the new `lambda` (λ) field, which is encoded in 3 bits in the `vtype` CSR, in combination with the per-instruction widening factor `W` and the standard vector-configuration values `LMUL`, `SEW`, and `VLEN`.
 
 A and B tiles have elements of width `SEW`÷`W`; the accumulator C has elements of width `SEW` (see <<tbl-extensions>>).
