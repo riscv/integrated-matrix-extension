@@ -83,9 +83,9 @@ The IM extension grants implementations a certain degree of flexibility in selec
 Given a vector length `VLEN` (also an implementationn choice) and a selected element width `SEW`, the number of elements in a single vector registers is (`VLEN` ÷ `SEW`).
 To define the shape of a tile contained in a single vector registers, we introduce an additional implementation-choice parameter `LAMBDA` that is the width of such tile in elements of `SEW`.
 The height of the tile is then `M` = (`VLEN` ÷ `SEW`) ÷ `LAMBDA`.
-The IM extension imposes two more restrictions on `LAMBDA`. (An additional restriction will be introduced later.)
-First, `LAMBDA`, and consequently `M`, must be a power of 2.
-Second, we must have `M` ≥ `LAMBDA`.
+The IM extension imposes two more restrictions on `LAMBDA`. (An additional third restriction will be introduced later.)
+First, `LAMBDA`, and consequently `M`, must be a power of 2 ≥ 1.
+Second, we must have `M` ≥ `LAMBDA` or, equivalently, `LAMBDA` ≤ (`VLEN` ÷ `SEW`)^½^.
 
 As an example of the implication of the rules for `LAMBDA`, let us consider the case `VLEN` = 512 and `SEW` = 32.
 In this case, (`VLEN` ÷ `SEW`) = 16 and, therefore there are only three possible choices for `LAMBDA`: 1, 2, or 4.
@@ -113,8 +113,20 @@ Therefore, in this case the legal values for `LAMBDA` are only 2 and 4, leading 
 The legal choices of `LAMBDA`, and corresponding values of `EMUL_C`, for all possible values of (`VLEN` ÷ `SEW`) are shown in <<ime-emulc-table>>.
 
 [#ime-emulc-table]
-.Table of legal implementation choices of `LAMBDA` for different values of `L` = (`VLEN` ÷ `SEW`). The entries in the table show the resulting multiplicity, |C| = `EMUL_C` of the vector register group holding tile C.
+.Table of legal implementation choices of `LAMBDA` for different values of `L` = (`VLEN` ÷ `SEW`). The entries in the table show the resulting multiplicity `EMUL_C` of the vector register group holding tile C.
 image::png/ime-emulc-table.png[width=80%, align=center, alt="Table of choices of `LAMBDA` as a function of (`VLEN` ÷ `SEW`)."]
+
+We see in <<ime-emulc-table>> that the majority of cases support either 2 or 3 choices for `LAMBDA`. 
+Furthermore, in those cases the corresponding values for `EMUL_C` are either `EMUL_C` ∈ {1, 4, 16} or `EMUL_C` ∈ {2, 8}.
+Highly optimized versions of a matrix-multiply kernel are specialized for a particular value of `EMUL_C`, as that dictates the multiplicity of a vector register group holding the C tile in a C ← A × B^T^ + C computation, 
+but are otherwise portable across specific choices of `VLEN` and `LAMBDA`.
+Therefore, a fully portable binary includes five (5) versions of a matrix-multiply kernel (one for each value of `EMUL_C`), with a run-time selector of which kernel to execute on a specific situation.
+
+We have introduced the fundamental concepts realted to the geometry of a C ← A × B^T^ + C computation.
+We now proceed with a more detailed explanation of the ISA support for controlling and selecting that geometry.
+We also discuss more general configurations, with elements of A and B that are submultiples of `SEW` and with the A and B input tiles also supporting vector register groups of multiplicity > 1.
+
+==== ISA control of matrix tile geometry
 
 The geometry of the multiplier and the tiles is defined by the new `lambda` (λ) field, which is encoded in 3 bits in the `vtype` CSR, in combination with the per-instruction widening factor `W` and the standard vector-configuration values `LMUL`, `SEW`, and `VLEN`.
 
