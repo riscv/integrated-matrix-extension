@@ -155,7 +155,11 @@ We also discuss more general configurations, with elements of A and B that are s
 
 ==== ISA control of matrix tile geometry
 
-The geometry of the multiplier and the tiles is defined by the new `LAMBDA` (λ) field, which is encoded in 3 bits in the `vtype` CSR, in combination with the per-instruction widening factor `W` and the standard vector-configuration values `LMUL`, `SEW`, and `VLEN`.
+The geometry of the multiplier and the tiles is defined by the new `lambda` (λ) field, which is encoded in 3 bits in the `vtype` CSR, in combination with the per-instruction widening factor `W` and the standard vector-configuration values `LMUL`, `SEW`, and `VLEN`.
+
+A and B tiles have elements of width `SEW`÷`W`; the accumulator C has elements of width `SEW` (see <<tbl-extensions>>).
+When operating on integer data types, the signedness of each input is controlled independently by `altfmt_A` and `altfmt_B` (0 = signed, 1 = unsigned; see <<integrated-matrix-altfmt-inputs>>); the accumulator C is always signed.
+Integer accumulation wraps modulo 2^`SEW`^.
 
 A and B tiles have elements of width `SEW`÷`W`; the accumulator C has elements of width `SEW` (see <<tbl-extensions>>).
 When operating on integer data types, the signedness of each input is controlled independently by `altfmt_A` and `altfmt_B` (0 = signed, 1 = unsigned; see <<integrated-matrix-altfmt-inputs>>); the accumulator C is always signed.
