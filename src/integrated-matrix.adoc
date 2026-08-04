@@ -18,15 +18,15 @@ form C ← A × B^T^ + C, using matrix tiles held in vector register groups.
 For orientation, `VLEN` is the vector-register width in bits, `SEW` is
 the element width for output C, `LMUL` is the vector register-group
 multiplier for the A and B input operands, `W` is the per-instruction
-widening factor, and `LAMBDA` is the IM tile-layout parameter introduced
+widening factor, and λ is the IM tile-layout parameter introduced
 below.
 `EMUL_C` is the register-group multiplier for the output C and is computed as
-`EMUL_C` = (`VLEN` ÷ `SEW`) ÷ `LAMBDA`^2^.
+`EMUL_C` = (`VLEN` ÷ `SEW`) ÷ λ^2^.
 A, B, and C are row-major matrix tiles.
 A and B are the input tiles, both of shape `M` × `K_eff`. C, of shape `M` × `M`, is the accumulator (output) tile.
-`M` = `VLEN` ÷ (`SEW` × `LAMBDA`) and `K_eff` = `LAMBDA` × `W` × `LMUL`.
+`M` = `VLEN` ÷ (`SEW` × λ) and `K_eff` = λ × `W` × `LMUL`.
 The detailed tile geometry, including the roles of `VLEN`, `SEW`,
-`LAMBDA`, `W`, `LMUL`, `K_eff`, and `EMUL_C`, is defined in
+λ, `W`, `LMUL`, `K_eff`, and `EMUL_C`, is defined in
 <<_matrix_tile_multiplication_geometry>>.
 
 The extensions are designed to support implementations spanning a wide range of microarchitectures and performance points: from small, embedded in-order cores targeting low-power and area-constrained applications, to large, high-performance out-of-order implementations targeting HPC and AI workloads.
@@ -81,58 +81,58 @@ This means that, in general, the sizes of the input and accumulator vector regis
 
 The IM extension grants implementations a certain degree of flexibility in selecting the shape of tiles.
 Given a vector length `VLEN` (also an implementationn choice) and a selected element width `SEW`, the number of elements in a single vector registers is (`VLEN` ÷ `SEW`).
-To define the shape of a tile contained in a single vector registers, we introduce an additional implementation-choice parameter `LAMBDA` that is the width of such tile in elements of `SEW`.
-The height of the tile is then `M` = (`VLEN` ÷ `SEW`) ÷ `LAMBDA`.
-The IM extension imposes two more restrictions on `LAMBDA`. (An additional third restriction will be introduced later.)
-First, `LAMBDA`, and consequently `M`, must be a power of 2 ≥ 1.
-Second, we must have `M` ≥ `LAMBDA` or, equivalently, `LAMBDA` ≤ (`VLEN` ÷ `SEW`)^½^.
+To define the shape of a tile contained in a single vector registers, we introduce an additional implementation-choice parameter λ that is the width of such tile in elements of `SEW`.
+The height of the tile is then `M` = (`VLEN` ÷ `SEW`) ÷ λ.
+The IM extension imposes two more restrictions on λ. (An additional third restriction will be introduced later.)
+First, λ, and consequently `M`, must be a power of 2 ≥ 1.
+Second, we must have `M` ≥ λ or, equivalently, λ ≤ (`VLEN` ÷ `SEW`)^½^.
 
-As an example of the implication of the rules for `LAMBDA`, let us consider the case `VLEN` = 512 and `SEW` = 32.
-In this case, (`VLEN` ÷ `SEW`) = 16 and, therefore there are only three possible choices for `LAMBDA`: 1, 2, or 4.
+As an example of the implication of the rules for λ, let us consider the case `VLEN` = 512 and `SEW` = 32.
+In this case, (`VLEN` ÷ `SEW`) = 16 and, therefore there are only three possible choices for λ: 1, 2, or 4.
 The corresponding values for `M` are 16, 8, and 4, respectively.
 The three possible configurations in this case are shown in <<ime-single-vec-reg-geometry>>.
 
 [#ime-single-vec-reg-geometry]
-.Geometry of matrix tiles fitting in a single vector register for `VLEN` = 512 and `SEW` = 32. (In general, for (`VLEN` ÷ `SEW`) = 16.) There are three legal choices for the implementation parameter `LAMBDA`, and corresponding `M`. (a) `LAMBDA` = 1, `M` = 16. (b) `LAMBDA` = 2, `M` = 8. (c) `LAMBDA` = 4, `M` = 4.
+.Geometry of matrix tiles fitting in a single vector register for `VLEN` = 512 and `SEW` = 32. (In general, for (`VLEN` ÷ `SEW`) = 16.) There are three legal choices for the implementation parameter λ, and corresponding `M`. (a) λ = 1, `M` = 16. (b) λ = 2, `M` = 8. (c) λ = 4, `M` = 4.
 image::png/ime-single-vec-reg-geometry.png[width=50%, align=center, alt="Diagram of tile geometry for a single vector register."]
 
-Since the `M` × `K` shape of the input tiles A and B that fit in a single vector register depends on the parameter `LAMBDA`, so does the shape `M` × `M` of the accumulator tile C.
-Correspondingly, the multiplicity of the vector register group holding tile C, `EMUL_C`, is also a function of `LAMBDA`, `EMUL_C` = `M` ÷ `LAMBDA` = (`VLEN` ÷ `SEW`) ÷ `LAMBDA`^2^.
+Since the `M` × `K` shape of the input tiles A and B that fit in a single vector register depends on the parameter λ, so does the shape `M` × `M` of the accumulator tile C.
+Correspondingly, the multiplicity of the vector register group holding tile C, `EMUL_C`, is also a function of λ, `EMUL_C` = `M` ÷ λ = (`VLEN` ÷ `SEW`) ÷ λ^2^.
 The three possible configurations for `VLEN` = 512 and `SEW` = 32 are shown in <<ime-emulc-examples>>.
 
 [#ime-emulc-examples]
-.Geometry of the computation of C ← A × B^T^ + C for `VLEN` = 512 and `SEW` = 32. (In general, for (`VLEN` ÷ `SEW`) = 16.) There are three legal choices for the implementation parameter `LAMBDA`, which impacts the shapes of the A, B, and C tiles, including the multiplicity `EMUL_C` of the vector register group holding the accumulator tile C. (a) `LAMBDA` = 1, `M` = 16, `EMUL_C` = 16. (b) `LAMBDA` = 2, `M` = 8, `EMUL_C` = 4. (c) `LAMBDA` = 4, `M` = 4, `EMUL_C` = 1.
-image::png/ime-emulc-examples.png[width=80%, align=center, alt="Diagram of C ← A × B^T^ + C computation for different choices of `LAMBDA`."]
+.Geometry of the computation of C ← A × B^T^ + C for `VLEN` = 512 and `SEW` = 32. (In general, for (`VLEN` ÷ `SEW`) = 16.) There are three legal choices for the implementation parameter λ, which impacts the shapes of the A, B, and C tiles, including the multiplicity `EMUL_C` of the vector register group holding the accumulator tile C. (a) λ = 1, `M` = 16, `EMUL_C` = 16. (b) λ = 2, `M` = 8, `EMUL_C` = 4. (c) λ = 4, `M` = 4, `EMUL_C` = 1.
+image::png/ime-emulc-examples.png[width=80%, align=center, alt="Diagram of C ← A × B^T^ + C computation for different choices of λ."]
 
-We now introduce the third restriction on `LAMBDA`.
+We now introduce the third restriction on λ.
 This (indirect) restriction comes from the 32 vector registers being used to stored tiles A, B, and C.
 To ensure enough space for the input tiles A and B, we force `EMUL_C` ∈ {1, 2, 4, 8, 16}.
-This requires a minimum values of `LAMBDA` when (`VLEN` ÷ `SEW`) is large.
+This requires a minimum values of λ when (`VLEN` ÷ `SEW`) is large.
 As an example, let us now consider the case  `VLEN` = 1024 and `SEW` = 32, leading to (`VLEN` ÷ `SEW`) = 32.
-The two legal choices for `LAMBDA` (2 and 4), and the corresponding values for `M` (16 and 8), are illustrated in <<ime-vec-reg-geometry-L32>>.
-A choice of `LAMBDA` = 1 would result in `EMUL_C` = 32, leaving no space for the A and B tiles.
+The two legal choices for λ (2 and 4), and the corresponding values for `M` (16 and 8), are illustrated in <<ime-vec-reg-geometry-L32>>.
+A choice of λ = 1 would result in `EMUL_C` = 32, leaving no space for the A and B tiles.
 The two possible configurations for `VLEN` = 1024 and `SEW` = 32 are shown in <<ime-emulc-examples-L32>>.
 
 [#ime-vec-reg-geometry-L32]
-.Geometry of matrix tiles fitting in a single vector register for `VLEN` = 1024 and `SEW` = 32. (In general, for (`VLEN` ÷ `SEW`) = 32.) There are two legal choices for the implementation parameter `LAMBDA`, and corresponding `M`. (a) `LAMBDA` = 2, `M` = 16. (b) `LAMBDA` = 4, `M` = 8.
+.Geometry of matrix tiles fitting in a single vector register for `VLEN` = 1024 and `SEW` = 32. (In general, for (`VLEN` ÷ `SEW`) = 32.) There are two legal choices for the implementation parameter λ, and corresponding `M`. (a) λ = 2, `M` = 16. (b) λ = 4, `M` = 8.
 image::png/ime-vec-reg-geometry-L32.png[width=50%, align=center, alt="Diagram of tile geometry for a single vector register."]
 
 [#ime-emulc-examples-L32]
-.Geometry of the computation of C ← A × B^T^ + C for `VLEN` = 1024 and `SEW` = 32. (In general, for (`VLEN` ÷ `SEW`) = 32.) There are two legal choices for the implementation parameter `LAMBDA`, which impacts the shapes of the A, B, and C tiles, including the multiplicity `EMUL_C` of the vector register group holding the accumulator tile C. (a) `LAMBDA` = 2, `M` = 16, `EMUL_C` = 8. (b) `LAMBDA` = 4, `M` = 8, `EMUL_C` = 2.
-image::png/ime-emulc-examples-L32.png[width=80%, align=center, alt="Diagram of C ← A × B^T^ + C computation for different choices of `LAMBDA`."]
+.Geometry of the computation of C ← A × B^T^ + C for `VLEN` = 1024 and `SEW` = 32. (In general, for (`VLEN` ÷ `SEW`) = 32.) There are two legal choices for the implementation parameter λ, which impacts the shapes of the A, B, and C tiles, including the multiplicity `EMUL_C` of the vector register group holding the accumulator tile C. (a) λ = 2, `M` = 16, `EMUL_C` = 8. (b) λ = 4, `M` = 8, `EMUL_C` = 2.
+image::png/ime-emulc-examples-L32.png[width=80%, align=center, alt="Diagram of C ← A × B^T^ + C computation for different choices of λ."]
 
-In general, if `L` = (`VLEN` ÷ `SEW`) is a perfect square (an even power of 2), then the valid choices for `LAMBDA` are {`L`^½^, `L`^½^ ÷ 2, `L`^½^ ÷ 4}.
-If `L` = (`VLEN` ÷ `SEW`) is two times a perfect square (an odd power of 2), then the valid choices for `LAMBDA` are {(`L` ÷ 2)^½^, (`L` ÷ 2)^½^ ÷ 2}.
-The legal choices of `LAMBDA`, and corresponding values of `EMUL_C`, for all possible values of (`VLEN` ÷ `SEW`) are shown in <<ime-emulc-table>>.
+In general, if `L` = (`VLEN` ÷ `SEW`) is a perfect square (an even power of 2), then the valid choices for λ are {`L`^½^, `L`^½^ ÷ 2, `L`^½^ ÷ 4}.
+If `L` = (`VLEN` ÷ `SEW`) is two times a perfect square (an odd power of 2), then the valid choices for λ are {(`L` ÷ 2)^½^, (`L` ÷ 2)^½^ ÷ 2}.
+The legal choices of λ, and corresponding values of `EMUL_C`, for all possible values of (`VLEN` ÷ `SEW`) are shown in <<ime-emulc-table>>.
 
 [#ime-emulc-table]
-.Table of legal implementation choices of `LAMBDA` for different values of `L` = (`VLEN` ÷ `SEW`). The entries in the table show the resulting multiplicity `EMUL_C` of the vector register group holding tile C.
-image::png/ime-emulc-table.png[width=80%, align=center, alt="Table of choices of `LAMBDA` as a function of (`VLEN` ÷ `SEW`)."]
+.Table of legal implementation choices of λ for different values of `L` = (`VLEN` ÷ `SEW`). The entries in the table show the resulting multiplicity `EMUL_C` of the vector register group holding tile C.
+image::png/ime-emulc-table.png[width=80%, align=center, alt="Table of choices of λ as a function of (`VLEN` ÷ `SEW`)."]
 
-We see in <<ime-emulc-table>> that the majority of cases support either 2 or 3 choices for `LAMBDA`.
+We see in <<ime-emulc-table>> that the majority of cases support either 2 or 3 choices for λ.
 Furthermore, in those cases the corresponding values for `EMUL_C` are either `EMUL_C` ∈ {1, 4, 16} or `EMUL_C` ∈ {2, 8}.
 Highly optimized versions of a matrix-multiply kernel are specialized for a particular value of `EMUL_C`, as that dictates the multiplicity of a vector register group holding the C tile in a C ← A × B^T^ + C computation,
-but are otherwise portable across specific choices of `VLEN` and `LAMBDA`.
+but are otherwise portable across specific choices of `VLEN` and λ.
 Therefore, a fully portable binary includes five (5) versions of a matrix-multiply kernel (one for each value of `EMUL_C`), with a run-time selector of which kernel to execute on a specific situation.
 
 ==== Example of a fully portable matrix multiply code
@@ -141,7 +141,7 @@ Therefore, a fully portable binary includes five (5) versions of a matrix-multip
 five microkernel organizations according to the value of `EMUL_C`.
 Arguments `A`  and `B` are the input matrices. The result C is stored in vector register v16-v31.
 Arguments `M`, `N`, and `K` define the shape of the matrix multiply, following BLAS convention.
-Arguments `L` and `lambda` are (`VLEN` ÷ `SEW`) and the selected `LAMBDA`, respectively.
+Arguments `L` and `lambda` are (`VLEN` ÷ `SEW`) and the selected λ, respectively.
 Although many concepts will only be introduced later, the example
 illustrates the general approach to low overhead portable code.
 The computation of `EMUL_C`, and the consequent decision of which code version to execute,
@@ -282,7 +282,7 @@ The number of vector registers with input tiles is different in each case.
 The overall shape of the result C is either square, if `EMUL_C` ∈ {1, 4, 16}, or rectangular, if `EMUL_C` ∈ {2, 8}.
 
 [#ime-portable-microkernel]
-.Geometry of the five microkernel variants. (a) `EMUL_C`=16, `LAMBDA`=(`VLEN` ÷ `SEW`)^½^ ÷ 4. (b) `EMUL_C`=8, `LAMBDA`=((`VLEN` ÷ `SEW`) ÷ 2)^½^ ÷ 2. (c) `EMUL_C`=4, `LAMBDA`=(`VLEN` ÷ `SEW`)^½^ ÷ 2. (d) `EMUL_C`=2, `LAMBDA`=((`VLEN` ÷ `SEW`) ÷ 2)^½^. (e) `EMUL_C`=1, `LAMBDA`=(`VLEN` ÷ `SEW`)^½^.
+.Geometry of the five microkernel variants. (a) `EMUL_C`=16, λ=(`VLEN` ÷ `SEW`)^½^ ÷ 4. (b) `EMUL_C`=8, λ=((`VLEN` ÷ `SEW`) ÷ 2)^½^ ÷ 2. (c) `EMUL_C`=4, λ=(`VLEN` ÷ `SEW`)^½^ ÷ 2. (d) `EMUL_C`=2, λ=((`VLEN` ÷ `SEW`) ÷ 2)^½^. (e) `EMUL_C`=1, λ=(`VLEN` ÷ `SEW`)^½^.
 image::png/ime-portable-microkernel.png[width=100%, align=center, alt="Diagram of geometry for five microkernels."]
 
 In the `EMUL_C=16` specialization, the sixteen-register accumulator
@@ -308,32 +308,37 @@ Finally, in the `EMUL_C=1` specialization, the output-register space is
 organized int a 4-by-4 array of single-register accumulator tiles.
 Four A input tiles and four B input tiles are loaded in each iteration, and 16 matrix multiply-accumulate instructions are used to update the result.
 
-==== Implementation choice of the tile geometry (`LAMBDA` and `EMUL_C`)
+==== Implementation choice of the tile geometry (λ and `EMUL_C`)
 
-The legality rules above leave the implementer with a choice of `LAMBDA` (equivalently, of `M` and `EMUL_C`) for a given `VLEN` and `SEW`. This choice is not free: it fixes the shape of the C-panel and therefore trades off arithmetic throughput, silicon area and power, and memory-system efficiency. (At least under the reasonable constraint of considering each individual computational instructions.) We summarize the forces at work using the three configurations of <<ime-emulc-examples>> (`VLEN` = 512, `SEW` = 32, so `L` = `VLEN` ÷ `SEW` = 16).
+The legality rules above leave the implementer with a choice of λ (equivalently, of `M` and `EMUL_C`) for a given `VLEN` and `SEW`. This choice is not free: it fixes the shape of the C-panel and therefore trades off arithmetic throughput, silicon area and power, and memory-system efficiency. (At least under the reasonable constraint of considering each individual computational instructions.) We summarize the forces at work using the three configurations of <<ime-emulc-examples>> (`VLEN` = 512, `SEW` = 32, so `L` = `VLEN` ÷ `SEW` = 16).
 
-*Compute intensity versus memory bandwidth.* Each update of the accumulator register group by a computational instruction (in linear algebra terms, a _rank-LAMBDA_ update) loads the A and B operands — `M`×`LAMBDA` elements each — and performs `M`×`M`x`LAMBDA` multiply-accumulates. The compute intensity, in MACs per loaded element, is therefore
+*Compute intensity versus memory bandwidth.* Each update of the accumulator register group by a computational instruction (in linear algebra terms, a _rank_-λ update) loads the A and B operands — `M`×λ elements each — and performs `M`×`M`xλ multiply-accumulates. The compute intensity, in MACs per loaded element, is therefore
 
-    I = (M×M×LAMBDA) ÷ (2×M×LAMBDA) = M ÷ 2 = L ÷ (2×LAMBDA).
+    I = (M×M×λ) ÷ (2×M×λ) = M ÷ 2 = L ÷ (2×λ).
 
-For the three cases this gives `I` = 8, 4, and 2 MACs/load for <<ime-emulc-examples>> (a), (b), and (c) respectively: the larger the C-panel (larger `M`, smaller `LAMBDA`), the more arithmetic is extracted per byte moved, and the less vector register fetch bandwidth is needed to keep the array busy. In roofline terms the attainable throughput is
+For the three cases this gives `I` = 8, 4, and 2 MACs/load for <<ime-emulc-examples>> (a), (b), and (c) respectively: the larger the C-panel (larger `M`, smaller λ), the more arithmetic is extracted per byte moved, and the less vector register fetch bandwidth is needed to keep the array busy. In roofline terms the attainable throughput is
 
     P = min(P_peak, I × B),
 
-where `B` is the delivered operand bandwidth and `P_peak` is the flat, compute-bound ceiling set by the number of instantiated MAC units. The product `I` × `B` is only the sloped, bandwidth-bound ceiling; a bandwidth-limited implementation raises its attainable `P` by choosing a geometry with higher `I` (smaller `LAMBDA`), which shifts the ridge point toward the arithmetic ceiling.
+where `B` is the delivered operand bandwidth and `P_peak` is the flat, compute-bound ceiling set by the number of instantiated MAC units. The product `I` × `B` is only the sloped, bandwidth-bound ceiling; a bandwidth-limited implementation raises its attainable `P` by choosing a geometry with higher `I` (smaller λ), which shifts the ridge point toward the arithmetic ceiling.
+
+The analysis above applies to a single computational instruction.
+For the microkernel in <<ime-portable-microkernel>>, the compute intensity is the same for each set of legal choices, since the shape of the result C is the same for all `EMUL_C` ∈ {1, 4, 16} or `EMUL_C` ∈ {2, 8}.
 
 *Peak throughput versus area and power.* The number of MAC units a configuration can usefully instantiate scales with the C-panel area and the rank:
 
-    N_MAC = M×M×LAMBDA = L^2^ ÷ LAMBDA.
+    N_MAC = M×M×λ = L^2^ ÷ λ.
 
-<<ime-emulc-examples>> (a) is a rank-1 outer-product engine of up to 16 × 16 = 256 MACs; <<ime-emulc-examples>> (c) is a rank-4 engine of 4 × 4 × 4 = 64 MACs. Both `N_MAC` and `I` increase as `LAMBDA` decreases, so a performance-only argument always favours the smallest legal `LAMBDA` — the largest `EMUL_C` in <<ime-emulc-table>>. Area and power push the other way: the 256-MAC array of (a) is four times the arithmetic hardware of (c). An implementation with a limited area or power budget therefore deliberately selects a larger `LAMBDA`, accepting lower compute intensity and lower peak throughput in exchange for a smaller multiplier. Subject to that budget, the highest-performance choice for a given `VLEN` and `SEW` is the one with the largest `EMUL_C` permitted by <<ime-emulc-table>>.
+<<ime-emulc-examples>> (a) is a rank-1 outer-product engine of up to 16 × 16 = 256 MACs; <<ime-emulc-examples>> (c) is a rank-4 engine of 4 × 4 × 4 = 64 MACs. Both `N_MAC` and `I` increase as λ decreases, so a performance-only argument always favours the smallest legal λ — the largest `EMUL_C` in <<ime-emulc-table>>. Area and power push the other way: the 256-MAC array of (a) is four times the arithmetic hardware of (c). An implementation with a limited area or power budget therefore deliberately selects a larger λ, accepting lower compute intensity and lower peak throughput in exchange for a smaller multiplier. Subject to that budget, the highest-performance choice for a given `VLEN` and `SEW` is the one with the largest `EMUL_C` permitted by <<ime-emulc-table>>.
 Achieved performance at the thread level is also constrained by operation latency. That can be mitigated through simultaneous multi-threading.
 
-*Dependence on `L`, and hence on `SEW`.* Because the accumulator `SEW` sets `L` = `VLEN` ÷ `SEW`, a single physical multiplier is used at different values of `L` for different C-element widths. If the multiplier is built as a fixed `M` × `M` panel, the operating `LAMBDA` is `LAMBDA` = `L` ÷ `M`, so the largest-`EMUL_C` (highest-intensity) point migrates with `SEW`. For example, on a machine with `VLEN` = 16384 wired to a 64 × 64 panel: at `SEW` = 32 (`L` = 512) the panel runs at `LAMBDA` = 8, `EMUL_C` = 8; at `SEW` = 16 (`L` = 1024) the same panel runs at `LAMBDA` = 16, `EMUL_C` = 4. Narrower C elements raise `L` and therefore require a larger `LAMBDA` on the same silicon.
+*Dependence on `L`, and hence on `SEW`.* As shown in <<ime-emulc-examples>> and <<ime-emulc-examples-L32>>, different choices of λ for a given `L` = `VLEN` ÷ `SEW` lead to different shapes of the multiplier array. Since `VLEN` is fixed for an implementation, the flexibility in λ lets the same multiplier array shape be used for different `SEW`s. For example, if `VLEN`=512, a 16 × 16 array can be used with both (`SEW` = 32, λ = 1) and (`SEW` = 16, λ = 2). In general, a `M` × `M` multiplier array can be used by setting λ = `L` ÷ `M` (when legal). Narrower C elements (smaller `SEW`) raise the value of `L` and therefore require a larger λ to result in the same multiplier shape.
+As previously discussed, a larger choice of `M`, and corresponding `EMUL_C`, leads to higher compute intensity.
+(If the shape of the C tile being computed is `M` × `M`, then the largest multiplier array that can be used effectively is also `M` × `M`. However, it is always possible to use a smaller array, but that leads to lower performance.)
 
-*Cacheline utilization of the tile loads.* The base `LAMBDA` can be extended along K by `LMUL`, giving an effective contraction depth `K_eff` = `LAMBDA` · `LMUL` (<<ISA-control-geometry>>, <<ime-tile-lmul-fig>>). Each matrix row streamed by an order-preserving tile load `vmtl` is therefore `K_eff` · `SEW` = `LAMBDA` · `LMUL` · `SEW` bits of contiguous data, and this length determines how well each row maps onto a memory cacheline. For `SEW` = 32 and a 512-bit (64-byte) cacheline: configuration (a), with `LAMBDA` = 1, streams at most 8 · 32 = 256 bits per row even at the maximum `LMUL` = 8, filling only half a cacheline; configuration (b), with `LAMBDA` = 2, reaches a full 512-bit line at `LMUL` = 8; and configuration (c), with `LAMBDA` = 4, reaches a full line already at `LMUL` = 4. A `LAMBDA` that is too small can thus leave `vmtl` unable to issue full-cacheline row transfers within the available `LMUL`, wasting bandwidth on partial lines. This gives a lower bound on the useful `LAMBDA` that is independent of, and may exceed, the minimum required for legality.
+*Cacheline utilization of the tile loads.* The base λ can be extended along K by `LMUL`, giving an effective contraction depth `K_eff` = λ · `LMUL` (<<ISA-control-geometry>>, <<ime-tile-lmul-fig>>). Each matrix row streamed by an order-preserving tile load `vmtl` is therefore `K_eff` · `SEW` = λ · `LMUL` · `SEW` bits of contiguous data, and this length determines how well each row maps onto a memory cacheline. For `SEW` = 32 and a 512-bit (64-byte) cacheline: configuration (a), with λ = 1, streams at most 8 · 32 = 256 bits per row even at the maximum `LMUL` = 8, filling only half a cacheline; configuration (b), with λ = 2, reaches a full 512-bit line at `LMUL` = 8; and configuration (c), with λ = 4, reaches a full line already at `LMUL` = 4. A λ that is too small can thus leave `vmtl` unable to issue full-cacheline row transfers within the available `LMUL`, wasting bandwidth on partial lines. This gives a lower bound on the useful λ that is independent of, and may exceed, the minimum required for legality.
 
-*Summary of the trade-off.* `LAMBDA` (and thus `EMUL_C`) is selected to balance three competing objectives: high compute intensity and peak throughput, which favour small `LAMBDA` (large C-panel, large `EMUL_C`); bounded multiplier area and power, which favour large `LAMBDA`; and full-cacheline tile loads, which impose a minimum useful `LAMBDA`. The resulting choice must in all cases satisfy the legality constraints of <<ime-emulc-table>>, in particular `EMUL_C` ∈ {1, 2, 4, 8, 16} and the reservation of register groups for the A and B operands.
+*Summary of the trade-off.* λ (and thus `EMUL_C`) is selected to balance three competing objectives: high compute intensity and peak throughput, which favour small λ (large C-panel, large `EMUL_C`); bounded multiplier area and power, which favour large λ; and full-cacheline tile loads, which impose a minimum useful λ. The resulting choice must in all cases satisfy the legality constraints of <<ime-emulc-table>>, in particular `EMUL_C` ∈ {1, 2, 4, 8, 16} and the reservation of register groups for the A and B operands.
 
 We have introduced the fundamental concepts realted to the geometry of a C ← A × B^T^ + C computation.
 We now proceed with a more detailed explanation of the ISA support for controlling and selecting that geometry.
@@ -342,7 +347,7 @@ We also discuss more general configurations, with elements of A and B that are s
 [#ISA-control-geometry]
 ==== ISA control of matrix tile geometry
 
-The geometry of the multiplier and the tiles is defined by the new `lambda` (the selected `LAMBDA`) field, which is encoded in 3 bits in the `vtype` CSR, in combination with the per-instruction widening factor `W` and the standard vector-configuration values `LMUL`, `SEW`, and `VLEN`.
+The geometry of the multiplier and the tiles is defined by the new `lambda` (the selected λ) field, which is encoded in 3 bits in the `vtype` CSR, in combination with the per-instruction widening factor `W` and the standard vector-configuration values `LMUL`, `SEW`, and `VLEN`.
 
 A and B tiles have elements of width `SEW`÷`W`; the accumulator C has elements of width `SEW` (see <<tbl-extensions>>).
 When operating on integer data types, the signedness of each input is controlled independently by `altfmt_A` and `altfmt_B` (0 = signed, 1 = unsigned; see <<integrated-matrix-altfmt-inputs>>); the accumulator C is always signed.
@@ -373,14 +378,14 @@ The in-register tiles used by the multiply-accumulate operation C ← A × B^T^ 
 
 * The _accumulator_ C is stored in a vector register group with element width `SEW`.
   The register-group multiplier of the C register group is `EMUL_C`, computed from the tile geometry:
-  `EMUL_C` = (`VLEN` ÷ `SEW`) ÷ `LAMBDA`^2^, where `LAMBDA` is the tile-layout parameter decoded from the `lambda[2:0]` field in `vtype`.
-  `LAMBDA`^2^ must divide (`VLEN` ÷ `SEW`), giving `EMUL_C` ∈ {1, 2, 4, 8, 16}.
+  `EMUL_C` = (`VLEN` ÷ `SEW`) ÷ λ^2^, where λ is the tile-layout parameter decoded from the `lambda[2:0]` field in `vtype`.
+  λ^2^ must divide (`VLEN` ÷ `SEW`), giving `EMUL_C` ∈ {1, 2, 4, 8, 16}.
   The C base register index must be a multiple of `EMUL_C`.
 
 [NOTE]
 ====
 `EMUL_C` plays the same role for the C operand that the per-operand `EMUL` plays for ordinary V instructions: it is the operand's effective register-group multiplier and it dictates the operand's alignment.
-However, `EMUL_C` is derived from the tile geometry (`VLEN`, `SEW`, `LAMBDA`) rather than from an `EEW` / `SEW` ratio, and it is independent of `vtype.LMUL`.
+However, `EMUL_C` is derived from the tile geometry (`VLEN`, `SEW`, λ) rather than from an `EEW` / `SEW` ratio, and it is independent of `vtype.LMUL`.
 In particular, `EMUL_C = 16` lies outside the value set permitted for the per-operand `EMUL` of base V instructions; the C operand is therefore aligned and indexed analogously to a V `EMUL`-grouped operand but with an extended value range.
 ====
 
@@ -404,12 +409,12 @@ vector intrinsic types. See <<integrated-matrix-ime-m16-types>>.
   The elements of the A, B, and C tiles are stored in row-major register layout.
 
 [#ime-geometry-fig]
-.Geometry of matrix tiles and element ordering for `VLEN`/`SEW` (vector length in C element width) = 32 and `LAMBDA`=4. Vector register groups are interpreted as 2D tiles. Vector element indices show the tile element order. (a) Non-widening case (W=1) with A, B, and C having the same SEW. (b) Double-widening case (W=2) with A and B at half the SEW of C, with two narrow input elements packed into each SEW-wide storage position.
+.Geometry of matrix tiles and element ordering for `VLEN`/`SEW` (vector length in C element width) = 32 and λ=4. Vector register groups are interpreted as 2D tiles. Vector element indices show the tile element order. (a) Non-widening case (W=1) with A, B, and C having the same SEW. (b) Double-widening case (W=2) with A and B at half the SEW of C, with two narrow input elements packed into each SEW-wide storage position.
 image::png/ime-geometry.png[width=100%, align=center, alt="Diagram of matrix tile geometry and multiplier configuration parameters."]
 
-The effective K-dimension of the multiplication (shared inner dimension of A and B^T^) is determined by `LAMBDA` from `vtype`, scaled by a per-instruction widening factor `W` and further multiplied by `LMUL`:
+The effective K-dimension of the multiplication (shared inner dimension of A and B^T^) is determined by λ from `vtype`, scaled by a per-instruction widening factor `W` and further multiplied by `LMUL`:
 
-    K_eff = LAMBDA × W × LMUL.
+    K_eff = λ × W × LMUL.
 
 Where `W` is 1 for non-widening instructions, 2 for 2× widening instructions, 4 for 4× widening instructions, and 8 for 8× widening instructions.
 
@@ -436,15 +441,15 @@ ordered sequence of `LMUL=1` steps, while preserving the architectural
 result defined by this specification.
 ====
 
-<<tile-dimensions>> shows how the tile dimensions follow from the widening, `LAMBDA`, and LMUL settings.
+<<tile-dimensions>> shows how the tile dimensions follow from the widening, λ, and LMUL settings.
 
 [#tile-dimensions]
 .Tile dimensions K~eff~, M, and N derived from the settings.
 [cols="1,1,1", options="header"]
 |===
 |Parameter  | Value                | description
-|K~eff~     | LAMBDA × W × LMUL         | number of input elements along the inner (K) dimension
-|M = N      | (VLEN ÷ SEW) ÷ LAMBDA     | rows = columns of the square accumulator tile
+|K~eff~     | λ × W × LMUL         | number of input elements along the inner (K) dimension
+|M = N      | (VLEN ÷ SEW) ÷ λ     | rows = columns of the square accumulator tile
 |===
 
 ==== Matrix tile multiplication computation
@@ -805,9 +810,9 @@ value is supported.
 
 A nonzero lambda is _architecturally permissible_ for a given (`VLEN`,
 `SEW`) only when it yields a valid C register group, i.e. when
-`EMUL_C` = `VLEN` ÷ (`SEW` × `LAMBDA`²) is an integer in {`1`, `2`, `4`, `8`,
+`EMUL_C` = `VLEN` ÷ (`SEW` × λ²) is an integer in {`1`, `2`, `4`, `8`,
 `16`} (equivalently, when the resulting tile has `M = N = VLEN ÷ (SEW ×
-LAMBDA) ≥ 1`). The _IME-legal configuration domain_ is the set of (`VLEN`,
+λ) ≥ 1`). The _IME-legal configuration domain_ is the set of (`VLEN`,
 `SEW`) for which at least one architecturally permissible nonzero lambda
 exists. Note that lambda = `1` is permissible only when `SEW ≤ VLEN ≤
 16 × SEW`; for `VLEN > 16 × SEW` the minimum permissible lambda is larger
@@ -1341,7 +1346,7 @@ C_{i,j} \leftarrow C_{i,j}
       B_{\mathrm{tile}}^{T}[k,j]
 ++++
 
-where K~eff~ = `LAMBDA` × `W` × `LMUL`.
+where K~eff~ = λ × `W` × `LMUL`.
 This section specifies how the K~eff~ product terms may be grouped and when intermediate rounding is permitted.
 
 ===== Sub-dot-products
@@ -1349,7 +1354,7 @@ This section specifies how the K~eff~ product terms may be grouped and when inte
 When `W` > `1`, the `W` narrow input-element pairs packed within one accumulator-width (`SEW`-bit) position form a natural computational unit called a _sub-dot-product_.
 The `W` multiplications of (`SEW÷W`)-bit elements are performed and their products summed.
 
-There are K~eff~ ÷ `W` = `LAMBDA` × `LMUL` sub-dot-products per output element.
+There are K~eff~ ÷ `W` = λ × `LMUL` sub-dot-products per output element.
 
 When `W` = `1`, each product of two `SEW`-bit values is exact at `2` × `SEW` bits; a sub-dot-product consists of a single product term.
 
@@ -1368,15 +1373,15 @@ C_{i,j} \leftarrow C_{i,j}
       B_{\mathrm{tile}}^{T}[k,j]
 ++++
 
-An implementation partitions the `LAMBDA` sub-dot-products for each output element into consecutive groups of `G` sub-dot-products.
+An implementation partitions the λ sub-dot-products for each output element into consecutive groups of `G` sub-dot-products.
 The implementation-defined grouping factor `G` is applied separately within each `LMUL=1` step, so that a group shall not cross the boundary between two consecutive `LMUL=1` steps.
-For unscaled floating-point multiply-accumulate instructions, every group within an `LMUL=1` step has exactly `G` sub-dot-products, and the number of groups in the computation of stem:[C_{i,j}] above is `LAMBDA` ÷ `G`.
+For unscaled floating-point multiply-accumulate instructions, every group within an `LMUL=1` step has exactly `G` sub-dot-products, and the number of groups in the computation of stem:[C_{i,j}] above is λ ÷ `G`.
 For microscaled instructions, additional microscaling block boundaries apply; see <<integrated-matrix-mx-shortened-groups>>.
 
 `G` must satisfy:
 
 * `G` is a power of two;
-* 1 ≤ `G` ≤ `LAMBDA`.  Since both `LAMBDA` and `G` are powers of two and `1 ≤ G ≤ LAMBDA`, `G` divides `LAMBDA`.
+* 1 ≤ `G` ≤ λ.  Since both λ and `G` are powers of two and `1 ≤ G ≤ λ`, `G` divides λ.
 
 * For unscaled instructions, each group contains exactly `G`
   sub-dot-products and therefore defines a dot product of two vectors with
@@ -1540,7 +1545,7 @@ implementation's complete architectural disclosure for the reduction
 algorithm is available.
 
 For unscaled instructions, the number of group updates per output element
-of C is (`LAMBDA` × `LMUL`) ÷ `G`. Each group update includes one final
+of C is (λ × `LMUL`) ÷ `G`. Each group update includes one final
 accumulation rounded according to `frm`. If `rnd=frm` or `rnd=rto`, one
 additional rounding of the partial sum `S` occurs before that final
 accumulation.
@@ -1548,7 +1553,7 @@ accumulation.
 For microscaled instructions, the number of group updates is the number of
 actual groups produced by the microscaling-block and `LMUL=1`-step
 intersections described in <<integrated-matrix-mx-shortened-groups>>. It
-need not equal (`LAMBDA` × `LMUL`) ÷ `G`. In addition, when `rnd=frm` or
+need not equal (λ × `LMUL`) ÷ `G`. In addition, when `rnd=frm` or
 `rnd=rto`, scaling the rounded partial sum with the accumulator-format
 floating-point multiply is a separate rounding point.
 
@@ -1572,9 +1577,9 @@ Implementations are free to declare any other `psm=1` reduction (for example, a 
 A Zvvm implementation can produce the exact same results as the analogous Zvtm implementation when operating on 16- and 8-bit inputs by disclosing `psm=1` with RVBNA at the standard parameters described above, `rnd=rto`, and a suitable architectural value of `G`: `G=2` for 16-bit inputs with 32-bit outputs, and `G=1` for 8-bit inputs with 32-bit outputs.
 For input element widths of 32 bits or greater, compatibility with the analogous Zvtm instruction is obtained with `G=1`, `psm=0`, and `rnd=frm` so that each group contains a single product and the partial sum `S` is that product rounded according to `frm`.
 
-In a *systolic-array* datapath, `G` is typically 1: each sub-dot-product is rounded and added to C immediately, yielding `LAMBDA` × LMUL rounding additions per output element.
+In a *systolic-array* datapath, `G` is typically 1: each sub-dot-product is rounded and added to C immediately, yielding λ × LMUL rounding additions per output element.
 
-In an *outer-product* datapath, `G` is typically on the order of `LAMBDA` (e.g., `LAMBDA`, `LAMBDA`÷2, `LAMBDA`÷4, or `LAMBDA`÷8): multiple sub-dot-products are accumulated at extended internal precision before a single rounding and C addition.
+In an *outer-product* datapath, `G` is typically on the order of λ (e.g., λ, λ÷2, λ÷4, or λ÷8): multiple sub-dot-products are accumulated at extended internal precision before a single rounding and C addition.
 This significantly reduces the number of expensive full-precision additions.
 
 Portable software must not assume a particular mapping from (`SEW`, `W`, `lambda`) to (`G`, `psm`, `rnd`) unless that mapping has been disclosed by the implementation.
@@ -1719,7 +1724,7 @@ demonstrates that a block size of 16 significantly improves accuracy for
 activation tensors with outliers.
 
 [#ime-block-scaling-mul]
-.Block scaling multiplication example with SEW=16, `LAMBDA`=4, W=4, LMUL=1. Block scales are applied along rows of stem:[A_{\mathrm{tile}}] and columns of stem:[B_{\mathrm{tile}}^{T}].
+.Block scaling multiplication example with SEW=16, λ=4, W=4, LMUL=1. Block scales are applied along rows of stem:[A_{\mathrm{tile}}] and columns of stem:[B_{\mathrm{tile}}^{T}].
 image::png/ime-block-scaling.png[align="center", width="50%"]
 
 The Integrated Matrix extensions support microscaling on widening
@@ -1837,8 +1842,8 @@ index `s`, the scalar K interval covered by the block is:
 The computation is also defined as repeated `LMUL=1` steps, in increasing
 register-index order. For `LMUL=1` step `step`, the scalar K interval is:
 
-    step_k_lo = step × LAMBDA × W
-    step_k_hi = step_k_lo + LAMBDA × W - 1
+    step_k_lo = step × λ × W
+    step_k_hi = step_k_lo + λ × W - 1
 
 For each output element, the instruction processes the intersection of the
 current microscaling block and the current `LMUL=1` step:
@@ -1928,14 +1933,14 @@ The interpretation of each 8-bit field is determined by the scale format
 associated with the input data type (see <<integrated-matrix-scale-formats>>).
 
 [#ime-block-scale-v0]
-.Block scales are folded into `v0` in pairs, separated by the row stride R = `LAMBDA` × SEW / _pw_. Each block-scale pair is used for `bs` consecutive tile elements in the corresponding row of stem:[A_{\mathrm{tile}}] and column of stem:[B_{\mathrm{tile}}^{T}]. In matrix-tile representation, `v0` has the paired scales arranged in the correct scale rows. In a multi-lane setup, the scales are distributed across the lanes appropriately.
+.Block scales are folded into `v0` in pairs, separated by the row stride R = λ × SEW / _pw_. Each block-scale pair is used for `bs` consecutive tile elements in the corresponding row of stem:[A_{\mathrm{tile}}] and column of stem:[B_{\mathrm{tile}}^{T}]. In matrix-tile representation, `v0` has the paired scales arranged in the correct scale rows. In a multi-lane setup, the scales are distributed across the lanes appropriately.
 image::png/ime-mx-v0-format.png[width="80%", align="center"]
 
 Let _sw_ = scale_width_of(scale_fmt) be the width in bits of a single scale
 value and _pw_ = 2 × _sw_ the width of a (scale_A, scale_B) pair.
 For E8M0: _sw_ = 8, _pw_ = 16.
 
-The row stride in `v0` is R = `LAMBDA` × SEW ÷ _pw_ in units of _pw_-bit elements (see <<ime-block-scale-v0>>).
+The row stride in `v0` is R = λ × SEW ÷ _pw_ in units of _pw_-bit elements (see <<ime-block-scale-v0>>).
 
 For each tile index _m_, S = ⌈K_eff / block_size⌉ elements are active.  Element
 index _p_ = _m_ × R + _s_ addresses the scale pair for block _s_.
@@ -1949,8 +1954,8 @@ _m_ of stem:[B_{\mathrm{tile}}^{T}]. Specifically:
 * stem:[\text{scale_B}_{m,s}] is the upper _sw_ bits of the _pw_-bit element at index (m × R + s).
 
 The total number of _pw_-bit elements spanned per tile dimension is M × R,
-where M = N = VLEN ÷ (SEW × `LAMBDA`).  Because M × R = (VLEN ÷ (SEW × `LAMBDA`)) ×
-(`LAMBDA` × SEW ÷ _pw_) = VLEN ÷ _pw_, the scale data fills exactly one register
+where M = N = VLEN ÷ (SEW × λ).  Because M × R = (VLEN ÷ (SEW × λ)) ×
+(λ × SEW ÷ _pw_) = VLEN ÷ _pw_, the scale data fills exactly one register
 regardless of configuration.
 
 [#ime-mx-v0-lanes]
@@ -1959,7 +1964,7 @@ image::png/ime-mx-v0-lanes.png[width="69%", align="center"]
 
 **Capacity proof:**
 
-M × R = (VLEN ÷ (SEW × `LAMBDA`)) × (`LAMBDA` × SEW ÷ _pw_) = VLEN ÷ _pw_.
+M × R = (VLEN ÷ (SEW × λ)) × (λ × SEW ÷ _pw_) = VLEN ÷ _pw_.
 
 Each of the VLEN ÷ _pw_ positions is a _pw_-bit element, so the total is
 exactly VLEN bits — the scale data fills one register in every legal
@@ -1970,13 +1975,13 @@ configuration.
 * block_size = 32: The encoding tables (<<tbl-fp-encoding-map>>,
   <<tbl-intmx-encoding-map>>) mark all combinations with W × LMUL > 2 × SEW
   as _reserved_, so every legal encoding satisfies W × LMUL ≤ 2 × SEW.
-  Therefore K_eff = `LAMBDA` × W × LMUL ≤ 2 × `LAMBDA` × SEW, giving
-  S = ⌈K_eff / 32⌉ ≤ ⌈2 × `LAMBDA` × SEW / 32⌉ ≤ `LAMBDA` × SEW / _pw_ = R
+  Therefore K_eff = λ × W × LMUL ≤ 2 × λ × SEW, giving
+  S = ⌈K_eff / 32⌉ ≤ ⌈2 × λ × SEW / 32⌉ ≤ λ × SEW / _pw_ = R
   (for _pw_ ≤ 16).
 * block_size = 16: The BS=16 legality check (W × LMUL ≤ SEW, stated in
   each instruction's Exceptions section) ensures
-  K_eff = `LAMBDA` × W × LMUL ≤ `LAMBDA` × SEW, giving
-  S = ⌈K_eff / 16⌉ ≤ ⌈`LAMBDA` × SEW / 16⌉ ≤ `LAMBDA` × SEW / _pw_ = R
+  K_eff = λ × W × LMUL ≤ λ × SEW, giving
+  S = ⌈K_eff / 16⌉ ≤ ⌈λ × SEW / 16⌉ ≤ λ × SEW / _pw_ = R
   (for _pw_ ≤ 16).
 
 When S < R, positions _s_ ∈ [S, R) within each row are padding and their
@@ -1985,7 +1990,7 @@ contents are ignored by the instruction.
 .Scale layout parameters (block_size = 32, VLEN = 256)
 [cols="1,1,1,1,1,1,1,1", options="header"]
 |===
-| SEW | LAMBDA | W | LMUL | M | S | R | 16-bit extent (M×R)
+| SEW | λ | W | LMUL | M | S | R | 16-bit extent (M×R)
 
 | 8  | 2 | 1 | 1 | 16 | 1 | 1 | 16
 | 8  | 2 | 1 | 8 | 16 | 1 | 1 | 16
@@ -2051,10 +2056,10 @@ specification: each block of 4-bit signed two's-complement elements shares a
 single E8M0 exponent-only scale factor, following the same block-scaling
 semantics as MXINT8 but with 4-bit elements.
 
-Microscaling requires SEW × `LAMBDA` ≥ _pw_ (the scale-pair width: 2 × _sw_) to
+Microscaling requires SEW × λ ≥ _pw_ (the scale-pair width: 2 × _sw_) to
 ensure that the paired scale elements fit within `v0`.
-For E8M0 (_sw_ = 8, _pw_ = 16) this reduces to SEW × `LAMBDA` ≥ 16.
-Configurations where SEW × `LAMBDA` < _pw_ with `vm=0` raise an
+For E8M0 (_sw_ = 8, _pw_ = 16) this reduces to SEW × λ ≥ 16.
+Configurations where SEW × λ < _pw_ with `vm=0` raise an
 illegal-instruction exception.
 
 Microscaling is particularly useful with narrow input formats (OFP4, OFP8)
@@ -2088,12 +2093,12 @@ in a 2D scale matrix (M rows, stride LD ≥ R between rows), a single
     vmtl.v   v0, (a0), a3         # tile-load pre-paired scales
 ----
 
-With EEW = 16 and LMUL = 1, linesize = `LAMBDA` = R (when SEW = 16).  Each
+With EEW = 16 and LMUL = 1, linesize = λ = R (when SEW = 16).  Each
 `vmtl.v` line corresponds to one scale row, and LD allows rows to be
 non-contiguous in the outer scale matrix.  When LD = R, this reduces to a
 unit-stride load.
 
-This form requires SEW = 16 (i.e., R = `LAMBDA`).  For SEW > 16, R > `LAMBDA`
+This form requires SEW = 16 (i.e., R = λ).  For SEW > 16, R > λ
 and a single `vmtl.v` cannot span a full scale row; use Option 2 instead.
 
 *Option 2 — Pre-paired flat load (`vle16.v`):*
@@ -2223,13 +2228,13 @@ The byte address of the element at offset `d` along the stride direction and off
 
 ==== Tile geometry for loads and stores
 
-The tile dimensions are fully determined by the current `vtype` settings (SEW, VL, LMUL, and `LAMBDA`), consistent with the operand geometry of the multiply-accumulate instructions.
+The tile dimensions are fully determined by the current `vtype` settings (SEW, VL, LMUL, and λ), consistent with the operand geometry of the multiply-accumulate instructions.
 The tile load and store instructions make use of the following parameters from the CSRs:
 
 * SEW — element width
-* VL — active vector length (must be a multiple of `LAMBDA` × LMUL, the line size)
+* VL — active vector length (must be a multiple of λ × LMUL, the line size)
 * LMUL — vector length multiplier
-* `LAMBDA` — selected lambda, read from `lambda[2:0]` in `vtype`
+* λ — selected lambda, read from `lambda[2:0]` in `vtype`
 
 Tile load/store instructions operate on `SEW`-bit _storage elements_.
 They do not interpret the logical element types packed within a storage
@@ -2274,16 +2279,16 @@ If (rs2) = 0, the leading dimension LD defaults to the _natural dimension_
 of the transfer, which differs between the order-preserving and the
 transposing variants:
 
-* For the order-preserving load/store (`vmtl.v`, `vmts.v`), LD = `LAMBDA` × LMUL
+* For the order-preserving load/store (`vmtl.v`, `vmts.v`), LD = λ × LMUL
   — the in-memory layout, with elements contiguous to each other, matches
   the layout of the register group being loaded/stored.
 
-* For the transposing load/store (`vmttl.v`, `vmtts.v`), LD = VLEN ÷ (SEW × `LAMBDA`)
+* For the transposing load/store (`vmttl.v`, `vmtts.v`), LD = VLEN ÷ (SEW × λ)
   (= `M`, the tile edge) — the leading dimension of a matrix tile that
   exactly fills one vector register group when transposed.
 
 (Each instruction restates its own default; the two values coincide only
-when VLEN ÷ SEW = `LAMBDA`² × LMUL.)
+when VLEN ÷ SEW = λ² × LMUL.)
 
 [NOTE]
 ====
@@ -2374,7 +2379,7 @@ identifies the faulting element so that the instruction can be restarted.
 Loads a 2D matrix tile from memory into the vector register group starting at `vd`.
 `rs1` holds the matrix base address; `rs2` holds the leading dimension `LD` in elements.
 
-Let _linesize_ = `LAMBDA` × LMUL.
+Let _linesize_ = λ × LMUL.
 For each element index `i` in the body `[vstart, VL)` where the mask is enabled:
 
     VD[i] = M[rs1 + (SEW ÷ 8) × ((i / linesize) × LD + (i % linesize))]
@@ -2397,7 +2402,7 @@ For each element index `i` in the body `[vstart, VL)` where the mask is enabled:
 
 [NOTE]
 ====
-Order preserving tile load/store with LMUL > 1 offers optimization opportunities. While vmtl/vmts are very similar to vector constant-stride segment operations, the segment sizes are potentially larger.  Matching cache line size with `LAMBDA` × LMUL × SEW allows for full cacheline transfers.
+Order preserving tile load/store with LMUL > 1 offers optimization opportunities. While vmtl/vmts are very similar to vector constant-stride segment operations, the segment sizes are potentially larger.  Matching cache line size with λ × LMUL × SEW allows for full cacheline transfers.
 ====
 [#ime-vmtls-lmul]
 .Order preserving tile load/store with LMUL > 1 for row-major (a) and column-major ordering in memory.
@@ -2471,7 +2476,7 @@ transpose the packed logical elements within it.
 `rs1` holds the matrix base address; `rs2` holds the leading dimension
 `LD`, measured in `SEW`-bit storage elements.
 
-Let _linesize_ = `LAMBDA` × LMUL.
+Let _linesize_ = λ × LMUL.
 For each element index `i` in the body `[vstart, VL)` where the mask is enabled:
 
     VD[i] = M[rs1 + (SEW ÷ 8) × ((i % linesize) × LD + (i / linesize))]
@@ -2490,7 +2495,7 @@ contained within an `SEW`-bit storage element.
 `rs1` holds the matrix base address; `rs2` holds the leading dimension
 `LD`, measured in `SEW`-bit storage elements.
 
-Let _linesize_ = `LAMBDA` × LMUL.
+Let _linesize_ = λ × LMUL.
 For each element index `i` in the body `[vstart, VL)` where the mask is enabled:
 
     M[rs1 + (SEW ÷ 8) × ((i % linesize) × LD + (i / linesize))] = VS[i]
@@ -2543,15 +2548,15 @@ tiles.
 
 The tile dimensions are fully determined by the current vector configuration:
 
-    M_tile     = VLEN / (SEW × LAMBDA)       (rows of A and C per computation)
-    K_eff      = LAMBDA × W × LMUL           (shared K-dimension step)
-    N_tile     = VL / (LAMBDA × LMUL)        (active columns of B_tile^T and C; set via vsetvl)
+    M_tile     = VLEN / (SEW × λ)       (rows of A and C per computation)
+    K_eff      = λ × W × LMUL           (shared K-dimension step)
+    N_tile     = VL / (λ × LMUL)        (active columns of B_tile^T and C; set via vsetvl)
     N_tile_max = M_tile                 (maximum columns when VL = VL_max)
-    EMUL_C      = VLEN / (SEW × LAMBDA²)      (C accumulator register group size)
+    EMUL_C      = VLEN / (SEW × λ²)      (C accumulator register group size)
 
-`M_tile` is fixed by the hardware (`VLEN`) and the chosen `SEW` and `LAMBDA`; it cannot be changed by VL.
+`M_tile` is fixed by the hardware (`VLEN`) and the chosen `SEW` and λ; it cannot be changed by VL.
 `N_tile` is controlled by the programmer through `VL`; use `vsetvl` to select the largest `N_tile` that fits the remaining columns.
-`VL` (set via `vset{i}vl{i}` at `vtype.SEW` equal to the C element width) must be a multiple of `LAMBDA` × LMUL, so only full columns can be selected.
+`VL` (set via `vset{i}vl{i}` at `vtype.SEW` equal to the C element width) must be a multiple of λ × LMUL, so only full columns can be selected.
 
 The C accumulator tile has a fixed physical shape:
 
@@ -2577,14 +2582,14 @@ C tile tail elements.
 Because the multiply-accumulate instructions always read all `M_tile`
 rows of A independent of `VL`, loading an A tile requires:
 
-    VL = M_tile × LAMBDA × LMUL
+    VL = M_tile × λ × LMUL
 
 which is the natural maximum `VL` for the chosen `LMUL`.
 
 The stem:[B_{\mathrm{tile}}] load and computation use the narrower
 active-column `VL`:
 
-    VL = LAMBDA × LMUL × N_tile
+    VL = λ × LMUL × N_tile
 
 The compute `VL` selects the number of active columns of
 stem:[B_{\mathrm{tile}}^{T}] and, equivalently, the number of active
@@ -2696,7 +2701,7 @@ single tile load/store instruction by configuring the tile load/store with:
 
 With this configuration:
 
-    linesize = LAMBDA × EMUL_C = N_tile_max
+    linesize = λ × EMUL_C = N_tile_max
 
 so each tile load/store line corresponds to one physical row of the C
 accumulator tile.
@@ -2727,7 +2732,7 @@ C column blocks.
 
 [NOTE]
 ====
-The compute `VL = LAMBDA × LMUL × N_tile` used by a multiply-accumulate
+The compute `VL = λ × LMUL × N_tile` used by a multiply-accumulate
 instruction is not the correct `VL` for loading or storing a fixed physical
 C accumulator tile. The compute `VL` selects active output columns for the
 multiply-accumulate instruction; C load/store uses the physical C tile
@@ -2744,7 +2749,7 @@ ordinary tile load/store instructions using `LMUL=8`.
 
 Let:
 
-    C_half_cols = 8 × LAMBDA
+    C_half_cols = 8 × λ
 
 The low `m8` half contains columns:
 
@@ -2771,7 +2776,7 @@ which use no mask, are expressible at either placement.)
 
 The following pseudocode implements C ← C + A × B for single-precision
 floating-point data, tiled over all three matrix dimensions.
-The configuration uses SEW=32, LMUL=1, and `LAMBDA`=4, giving K_eff = 4 and
+The configuration uses SEW=32, LMUL=1, and λ=4, giving K_eff = 4 and
 M_tile = VLEN/128.
 Matrices A and C are stored row-major; Matrix B is stored column-major, allowing its columns
 to be loaded directly into the column-major register layout of
@@ -2859,7 +2864,7 @@ for (j = 0; j < N; j += N_tile) {
 
 Key observations:
 
-* The A tile must be loaded with `VL = M_tile × LAMBDA × LMUL` (the maximum VL
+* The A tile must be loaded with `VL = M_tile × λ × LMUL` (the maximum VL
   for the chosen A/B `LMUL`) because `vfmmacc.vv` always reads all
   `M_tile` rows of A regardless of the `VL` set for the computation.
   A separate vector-configuration step is therefore required before each
@@ -2868,7 +2873,7 @@ Key observations:
 * The order-preserving `B_matrix` load constructs
   stem:[B_{\mathrm{tile}}^{T}] directly. The load and the
   multiply-accumulate instruction share
-  `VL = LAMBDA × LMUL × N_tile`, which selects the active columns of
+  `VL = λ × LMUL × N_tile`, which selects the active columns of
   stem:[B_{\mathrm{tile}}^{T}] and C.
 
 * The C accumulator tile has fixed physical shape
@@ -2928,7 +2933,7 @@ group occupying sixteen consecutive vector registers. It does not
 denote `vtype.LMUL = 16`.
 
 * For multiply-accumulate intrinsics, the register-group multiplier
-encoded in the accumulator type suffix is `EMUL_C` =  `VLEN` ÷ (`SEW` × `LAMBDA`²), which is determined by `VLEN`, `SEW`,
+encoded in the accumulator type suffix is `EMUL_C` =  `VLEN` ÷ (`SEW` × λ²), which is determined by `VLEN`, `SEW`,
 and the selected `lambda`, and is _independent_ of `LMUL`.
 
 * A `_lm{N}` qualifier (`N` ∈ {1, 2, 4, 8}) is appended to the
@@ -3720,12 +3725,12 @@ c = __riscv_vfwmmacc_vv_f32m16_f16m1(c, a, b, vl_in_e32);
 
 ===== Integer matrix multiply-accumulate (Zvvmm)
 
-The accumulator register group C uses EMUL_C = VLEN ÷ (SEW × `LAMBDA`²) registers.
+The accumulator register group C uses EMUL_C = VLEN ÷ (SEW × λ²) registers.
 EMUL_C is determined by the implementation's VLEN and is independent of LMUL.
 The type-suffix in the intrinsic name always encodes the accumulator C type
 (including its EMUL_C); A and B use `vs1` and `vs2` argument types that reflect
 LMUL directly.
-The tables below list representative prototypes for VLEN=256 and `LAMBDA`=2 (giving
+The tables below list representative prototypes for VLEN=256 and λ=2 (giving
 EMUL_C = VLEN ÷ (SEW × 4)); all valid (EMUL_C, LMUL) combinations are available with
 the appropriate `_lm{N}` qualifier.
 
@@ -4059,8 +4064,8 @@ format separately.
 
 ===== VLEN-portable code
 
-Because EMUL_C = VLEN / (SEW × `LAMBDA`²), the accumulator register-group multiplier
-varies across implementations with different values of VLEN and `LAMBDA`, even for a fixed SEW tied to an output type.
+Because EMUL_C = VLEN / (SEW × λ²), the accumulator register-group multiplier
+varies across implementations with different values of VLEN and λ, even for a fixed SEW tied to an output type.
 The type suffix in a long-form multiply-accumulate intrinsic name directly encodes EMUL_C, whereas in an overloaded name that EMUL_C is implicit.
 Either way, source code with IME intrinsics is tied to a specific combination of input/output types and value of EMUL_C.
 
@@ -4076,7 +4081,7 @@ implementation-defined compiler conventions.
 
 Although it is possible to write more general assembly code, it is common industry practice to favor coding with compiler intrinsics.
 The recommended approach for writing portable code with IME intrinsics is to package multiple code paths in the same executable, each optimized for a specific value of EMUL_C.
-Runtime selection of the appropriate code path is then performed based on the result of `vsetvl` and computations of EMUL_C = VLEN / (SEW × `LAMBDA`²).
+Runtime selection of the appropriate code path is then performed based on the result of `vsetvl` and computations of EMUL_C = VLEN / (SEW × λ²).
 
 ==== Encoding-map legality overview
 
@@ -4888,8 +4893,8 @@ and _vd_ as an M×M physical accumulator tile (row-major register
 layout), of which only the first N columns are active.
 _vs1_ and _vs2_ have elements of width SEW÷8; _vd_ has elements of width SEW.
 +
-K_effective = `LAMBDA` × 8 × LMUL.
-`VL` selects how many columns of stem:[B_{\mathrm{tile}}^{T}], and therefore how many columns of C, are active; VL must be a multiple of `LAMBDA` × LMUL.
+K_effective = λ × 8 × LMUL.
+`VL` selects how many columns of stem:[B_{\mathrm{tile}}^{T}], and therefore how many columns of C, are active; VL must be a multiple of λ × LMUL.
 The remaining columns of the physical C tile are C tile tail elements.
 The signedness of each input operand is selected by `altfmt_A` and `altfmt_B` in `vtype`:
 0 = signed, 1 = unsigned.
@@ -4902,8 +4907,8 @@ _Illegal Instruction_ is raised if any of the following conditions holds:
 +
 * `vstart` ≠ 0.
 * SEW < 32 (EEW = SEW÷8 would be sub-nibble).
-* VL is not a multiple of `LAMBDA` × LMUL.
-* EMUL_C (= VLEN ÷ (SEW × `LAMBDA`²)) is not in \{1, 2, 4, 8, 16}.
+* VL is not a multiple of λ × LMUL.
+* EMUL_C (= VLEN ÷ (SEW × λ²)) is not in \{1, 2, 4, 8, 16}.
 * _vs1_ or _vs2_ is not aligned for LMUL.
 * _vd_ is not aligned for EMUL_C.
 * When `vm=1`: the selected row in <<tbl-int-encoding-map>> is marked `_reserved_`, or the extension named by that row is not implemented.
@@ -4976,8 +4981,8 @@ and _vd_ as an M×M physical accumulator tile (row-major register
 layout), of which only the first N columns are active.
 _vs1_ and _vs2_ have elements of width SEW÷8; _vd_ has elements of width SEW.
 +
-K_effective = `LAMBDA` × 8 × LMUL.
-`VL` selects how many columns of stem:[B_{\mathrm{tile}}^{T}], and therefore how many columns of C, are active; VL must be a multiple of `LAMBDA` × LMUL.
+K_effective = λ × 8 × LMUL.
+`VL` selects how many columns of stem:[B_{\mathrm{tile}}^{T}], and therefore how many columns of C, are active; VL must be a multiple of λ × LMUL.
 The remaining columns of the physical C tile are C tile tail elements.
 The floating-point format for A and B elements is selected independently by
 `altfmt_A` and `altfmt_B`, interpreted for input element width SEW÷8; the C
@@ -4998,12 +5003,12 @@ _Illegal Instruction_ is raised if any of the following conditions holds:
 +
 * `vstart` ≠ 0.
 * SEW < 32 (EEW = SEW÷8 would be sub-nibble).
-* VL is not a multiple of `LAMBDA` × LMUL.
-* EMUL_C (= VLEN ÷ (SEW × `LAMBDA`²)) is not in \{1, 2, 4, 8, 16}.
+* VL is not a multiple of λ × LMUL.
+* EMUL_C (= VLEN ÷ (SEW × λ²)) is not in \{1, 2, 4, 8, 16}.
 * _vs1_ or _vs2_ is not aligned for LMUL.
 * _vd_ is not aligned for EMUL_C.
 * When `vm=0`: the selected MX cell in <<tbl-fp-encoding-map>> is `—` or `_reserved_`, or any required extension named by that cell is not implemented.
-* When `vm=0`: SEW × `LAMBDA` < 16.
+* When `vm=0`: SEW × λ < 16.
 * When `vm=0` and `bs=1`: W × LMUL > SEW (i.e., 8 × LMUL > SEW).
 * When `vm=0`: _vd_, _vs1_, or _vs2_ overlaps `v0`.
 * When `vm=1`: the selected row in <<tbl-fp-encoding-map>> is marked `_reserved_`, or any extension named by that row is not implemented.
@@ -5092,8 +5097,8 @@ _vs1_ is interpreted as the stem:[M \times K_{\mathrm{eff}}] tile stem:[A_{\math
 and _vd_ as an M×M physical accumulator tile (row-major register
 layout), of which only the first N columns are active.  All three tiles have elements of width SEW.
 +
-K_effective = `LAMBDA` × LMUL.
-`VL` selects how many columns of stem:[B_{\mathrm{tile}}^{T}], and therefore how many columns of C, are active; VL must be a multiple of `LAMBDA` × LMUL.
+K_effective = λ × LMUL.
+`VL` selects how many columns of stem:[B_{\mathrm{tile}}^{T}], and therefore how many columns of C, are active; VL must be a multiple of λ × LMUL.
 The remaining columns of the physical C tile are C tile tail elements.
 The floating-point format for A and B elements is selected independently by
 `altfmt_A` and `altfmt_B` in `vtype` (see <<mixed-format-inputs>>);
@@ -5110,8 +5115,8 @@ _Illegal Instruction_ is raised if any of the following conditions holds:
 +
 * `vstart` ≠ 0.
 * `vm` = 0 (_reserved_).
-* VL is not a multiple of `LAMBDA` × LMUL.
-* EMUL_C (= VLEN ÷ (SEW × `LAMBDA`²)) is not in \{1, 2, 4, 8, 16}.
+* VL is not a multiple of λ × LMUL.
+* EMUL_C (= VLEN ÷ (SEW × λ²)) is not in \{1, 2, 4, 8, 16}.
 * _vs1_ or _vs2_ is not aligned for LMUL.
 * _vd_ is not aligned for EMUL_C.
 * The selected row in <<tbl-fp-encoding-map>> is marked `_reserved_`, or any extension named by that row is not implemented.
@@ -5186,8 +5191,8 @@ and _vd_ as an M×M physical accumulator tile (row-major register
 layout), of which only the first N columns are active.
 _vs1_ and _vs2_ have elements of width SEW÷4; _vd_ has elements of width SEW.
 +
-K_effective = `LAMBDA` × 4 × LMUL.
-`VL` selects how many columns of stem:[B_{\mathrm{tile}}^{T}], and therefore how many columns of C, are active; VL must be a multiple of `LAMBDA` × LMUL.
+K_effective = λ × 4 × LMUL.
+`VL` selects how many columns of stem:[B_{\mathrm{tile}}^{T}], and therefore how many columns of C, are active; VL must be a multiple of λ × LMUL.
 The remaining columns of the physical C tile are C tile tail elements.
 The floating-point format for A and B elements is selected independently by
 `altfmt_A` and `altfmt_B`, interpreted for input element width SEW÷4; the C
@@ -5209,12 +5214,12 @@ _Illegal Instruction_ is raised if any of the following conditions holds:
 +
 * `vstart` ≠ 0.
 * `SEW = 8` (`EEW = SEW ÷ 4 = 2` is reserved).
-* VL is not a multiple of `LAMBDA` × LMUL.
-* EMUL_C (= VLEN ÷ (SEW × `LAMBDA`²)) is not in \{1, 2, 4, 8, 16}.
+* VL is not a multiple of λ × LMUL.
+* EMUL_C (= VLEN ÷ (SEW × λ²)) is not in \{1, 2, 4, 8, 16}.
 * _vs1_ or _vs2_ is not aligned for LMUL.
 * _vd_ is not aligned for EMUL_C.
 * When `vm=0`: the selected MX cell in <<tbl-fp-encoding-map>> is `—` or `_reserved_`, or any required extension named by that cell is not implemented.
-* When `vm=0`: SEW × `LAMBDA` < 16.
+* When `vm=0`: SEW × λ < 16.
 * When `vm=0` and `bs=1`: W × LMUL > SEW.
 * When `vm=0`: _vd_, _vs1_, or _vs2_ overlaps `v0`.
 * When `vm=1`: the selected row in <<tbl-fp-encoding-map>> is marked `_reserved_`, or any extension named by that row is not implemented.
@@ -5307,8 +5312,8 @@ and _vd_ as an M×M physical accumulator tile (row-major register
 layout), of which only the first N columns are active.
 _vs1_ and _vs2_ have elements of width SEW÷2; _vd_ has elements of width SEW.
 +
-K_effective = `LAMBDA` × 2 × LMUL.
-`VL` selects how many columns of stem:[B_{\mathrm{tile}}^{T}], and therefore how many columns of C, are active; VL must be a multiple of `LAMBDA` × LMUL.
+K_effective = λ × 2 × LMUL.
+`VL` selects how many columns of stem:[B_{\mathrm{tile}}^{T}], and therefore how many columns of C, are active; VL must be a multiple of λ × LMUL.
 The remaining columns of the physical C tile are C tile tail elements.
 The floating-point format for A and B elements is selected independently by
 `altfmt_A` and `altfmt_B`, interpreted for input element width SEW÷2; the C
@@ -5326,12 +5331,12 @@ Exceptions::
 _Illegal Instruction_ is raised if any of the following conditions holds:
 +
 * `vstart` ≠ 0.
-* VL is not a multiple of `LAMBDA` × LMUL.
-* EMUL_C (= VLEN ÷ (SEW × `LAMBDA`²)) is not in \{1, 2, 4, 8, 16}.
+* VL is not a multiple of λ × LMUL.
+* EMUL_C (= VLEN ÷ (SEW × λ²)) is not in \{1, 2, 4, 8, 16}.
 * _vs1_ or _vs2_ is not aligned for LMUL.
 * _vd_ is not aligned for EMUL_C.
 * When `vm=0`: the selected MX cell in <<tbl-fp-encoding-map>> is `—` or `_reserved_`, or any required extension named by that cell is not implemented.
-* When `vm=0`: SEW × `LAMBDA` < 16.
+* When `vm=0`: SEW × λ < 16.
 * When `vm=0` and `bs=1`: W × LMUL > SEW.
 * When `vm=0`: _vd_, _vs1_, or _vs2_ overlaps `v0`.
 * When `vm=1`: the selected row in <<tbl-fp-encoding-map>> is marked `_reserved_`, or any extension named by that row is not implemented.
@@ -5425,8 +5430,8 @@ and _vd_ as an M×M physical FP accumulator tile (row-major
 register layout), of which only the first N columns are active.
 _vs1_ and _vs2_ have integer elements of width SEW÷2; _vd_ has FP elements of width SEW.
 +
-K_effective = `LAMBDA` × 2 × LMUL.
-`VL` selects how many columns of stem:[B_{\mathrm{tile}}^{T}], and therefore how many columns of C, are active; VL must be a multiple of `LAMBDA` × LMUL.
+K_effective = λ × 2 × LMUL.
+`VL` selects how many columns of stem:[B_{\mathrm{tile}}^{T}], and therefore how many columns of C, are active; VL must be a multiple of λ × LMUL.
 The remaining columns of the physical C tile are C tile tail elements.
 MXINT inputs are always signed; `altfmt_A` and `altfmt_B` must be 0.
 `altfmt` selects the FP format of the accumulator C.
@@ -5447,11 +5452,11 @@ _Illegal Instruction_ is raised if any of the following conditions holds:
 * `altfmt_A` = 1 (reserved; MXINT inputs are signed).
 * `altfmt_B` = 1 (reserved; MXINT inputs are signed).
 * The selected MX cell in <<tbl-intmx-encoding-map>> is `_reserved_`, or the extension named by that cell is not implemented.
-* VL is not a multiple of `LAMBDA` × LMUL.
-* EMUL_C (= VLEN ÷ (SEW × `LAMBDA`²)) is not in \{1, 2, 4, 8, 16}.
+* VL is not a multiple of λ × LMUL.
+* EMUL_C (= VLEN ÷ (SEW × λ²)) is not in \{1, 2, 4, 8, 16}.
 * _vs1_ or _vs2_ is not aligned for LMUL.
 * _vd_ is not aligned for EMUL_C.
-* SEW × `LAMBDA` < 16.
+* SEW × λ < 16.
 * When `bs=1`: W × LMUL > SEW (i.e., 2 × LMUL > SEW).
 * _vd_, _vs1_, or _vs2_ overlaps `v0`.
 
@@ -5543,8 +5548,8 @@ and _vd_ as an M×M physical FP accumulator tile (row-major
 register layout), of which only the first N columns are active.
 _vs1_ and _vs2_ have integer elements of width SEW÷8; _vd_ has FP elements of width SEW.
 +
-K_effective = `LAMBDA` × 8 × LMUL.
-`VL` selects how many columns of stem:[B_{\mathrm{tile}}^{T}], and therefore how many columns of C, are active; VL must be a multiple of `LAMBDA` × LMUL.
+K_effective = λ × 8 × LMUL.
+`VL` selects how many columns of stem:[B_{\mathrm{tile}}^{T}], and therefore how many columns of C, are active; VL must be a multiple of λ × LMUL.
 The remaining columns of the physical C tile are C tile tail elements.
 MXINT inputs are always signed; `altfmt_A` and `altfmt_B` must be 0.
 `altfmt` selects the FP format of the accumulator C.
@@ -5563,11 +5568,11 @@ _Illegal Instruction_ is raised if any of the following conditions holds:
 * `altfmt_A` = 1 (reserved; MXINT inputs are signed).
 * `altfmt_B` = 1 (reserved; MXINT inputs are signed).
 * The selected MX cell in <<tbl-intmx-encoding-map>> is `_reserved_`, or the extension named by that cell is not implemented.
-* VL is not a multiple of `LAMBDA` × LMUL.
-* EMUL_C (= VLEN ÷ (SEW × `LAMBDA`²)) is not in \{1, 2, 4, 8, 16}.
+* VL is not a multiple of λ × LMUL.
+* EMUL_C (= VLEN ÷ (SEW × λ²)) is not in \{1, 2, 4, 8, 16}.
 * _vs1_ or _vs2_ is not aligned for LMUL.
 * _vd_ is not aligned for EMUL_C.
-* SEW × `LAMBDA` < 16.
+* SEW × λ < 16.
 * When `bs=1`: W × LMUL > SEW (i.e., 8 × LMUL > SEW).
 * _vd_, _vs1_, or _vs2_ overlaps `v0`.
 
@@ -5656,8 +5661,8 @@ and _vd_ as an M×M physical FP accumulator tile (row-major
 register layout), of which only the first N columns are active.
 _vs1_ and _vs2_ have integer elements of width SEW÷4; _vd_ has FP elements of width SEW.
 +
-K_effective = `LAMBDA` × 4 × LMUL.
-`VL` selects how many columns of stem:[B_{\mathrm{tile}}^{T}], and therefore how many columns of C, are active; VL must be a multiple of `LAMBDA` × LMUL.
+K_effective = λ × 4 × LMUL.
+`VL` selects how many columns of stem:[B_{\mathrm{tile}}^{T}], and therefore how many columns of C, are active; VL must be a multiple of λ × LMUL.
 The remaining columns of the physical C tile are C tile tail elements.
 MXINT inputs are always signed; `altfmt_A` and `altfmt_B` must be 0.
 `altfmt` selects the FP format of the accumulator C.
@@ -5678,11 +5683,11 @@ _Illegal Instruction_ is raised if any of the following conditions holds:
 * `altfmt_A` = 1 (reserved; MXINT inputs are signed).
 * `altfmt_B` = 1 (reserved; MXINT inputs are signed).
 * The selected MX cell in <<tbl-intmx-encoding-map>> is `_reserved_`, or the extension named by that cell is not implemented.
-* VL is not a multiple of `LAMBDA` × LMUL.
-* EMUL_C (= VLEN ÷ (SEW × `LAMBDA`²)) is not in \{1, 2, 4, 8, 16}.
+* VL is not a multiple of λ × LMUL.
+* EMUL_C (= VLEN ÷ (SEW × λ²)) is not in \{1, 2, 4, 8, 16}.
 * _vs1_ or _vs2_ is not aligned for LMUL.
 * _vd_ is not aligned for EMUL_C.
-* SEW × `LAMBDA` < 16.
+* SEW × λ < 16.
 * When `bs=1`: W × LMUL > SEW (i.e., 4 × LMUL > SEW).
 * _vd_, _vs1_, or _vs2_ overlaps `v0`.
 
@@ -5767,8 +5772,8 @@ _vs1_ is interpreted as the stem:[M \times K_{\mathrm{eff}}] tile stem:[A_{\math
 and _vd_ as an M×M physical accumulator tile (row-major register
 layout), of which only the first N columns are active.  All three tiles have elements of width SEW.
 +
-K_effective = `LAMBDA` × LMUL.
-`VL` selects how many columns of stem:[B_{\mathrm{tile}}^{T}], and therefore how many columns of C, are active; VL must be a multiple of `LAMBDA` × LMUL.
+K_effective = λ × LMUL.
+`VL` selects how many columns of stem:[B_{\mathrm{tile}}^{T}], and therefore how many columns of C, are active; VL must be a multiple of λ × LMUL.
 The remaining columns of the physical C tile are C tile tail elements.
 The signedness of each input operand is selected by `altfmt_A` and `altfmt_B` in `vtype`:
 0 = signed, 1 = unsigned.
@@ -5779,8 +5784,8 @@ _Illegal Instruction_ is raised if any of the following conditions holds:
 +
 * `vstart` ≠ 0.
 * `vm` = 0 (_reserved_).
-* VL is not a multiple of `LAMBDA` × LMUL.
-* EMUL_C (= VLEN ÷ (SEW × `LAMBDA`²)) is not in \{1, 2, 4, 8, 16}.
+* VL is not a multiple of λ × LMUL.
+* EMUL_C (= VLEN ÷ (SEW × λ²)) is not in \{1, 2, 4, 8, 16}.
 * _vs1_ or _vs2_ is not aligned for LMUL.
 * _vd_ is not aligned for EMUL_C.
 * The selected row in <<tbl-int-encoding-map>> is marked `_reserved_`, or the extension named by that row is not implemented.
@@ -5843,14 +5848,14 @@ Encoding::
 Description::
 Loads a 2D matrix tile from memory into the vector register group starting at _vd_.
 _rs1_ holds the matrix base address; _rs2_ holds the leading dimension `LD` in elements of width SEW.
-if _rs2_ holds zero (0), the leading dimension `LD` is set to `LAMBDA` × LMUL.
+if _rs2_ holds zero (0), the leading dimension `LD` is set to λ × LMUL.
 When _LLAMBDA_ is specified, it overrides `lambda[2:0]` from `vtype` for this instruction.
 Inactive elements (masked off) are left undisturbed in the destination register.
 Tail elements (index ≥ VL) are left undisturbed in the destination register.
 The tail-agnostic (`vtype.vta`) and mask-agnostic (`vtype.vma`) fill policies do not apply to tile loads.
 Neither inactive nor tail elements raise memory exceptions.
 +
-Let _linesize_ = `LAMBDA` × LMUL.
+Let _linesize_ = λ × LMUL.
 For each element index `i` in the body `[vstart, VL)` where the mask is enabled:
 +
     VD[i] = M[rs1 + (SEW ÷ 8) × ((i / linesize) × LD + (i % linesize))]
@@ -5858,7 +5863,7 @@ For each element index `i` in the body `[vstart, VL)` where the mask is enabled:
 This is the correct load variant when A is stored in row-major order or when B is stored in
 column-major order: in both cases the memory layout consists of _linesize_-element
 contiguous segments with a stride of `LD` elements between them.
-For LMUL=1 this simplifies to `LAMBDA`-element segments.
+For LMUL=1 this simplifies to λ-element segments.
 
 Exceptions::
 The instruction raises the standard vector memory exceptions for active
@@ -5989,12 +5994,12 @@ Encoding::
 Description::
 Stores the 2D matrix tile held in the vector register group starting at _vs3_ to memory.
 _rs1_ holds the matrix base address; _rs2_ holds the leading dimension `LD` in elements of width SEW.
-if _rs2_ holds zero (0), the leading dimension `LD` is set to `LAMBDA` × LMUL.
+if _rs2_ holds zero (0), the leading dimension `LD` is set to λ × LMUL.
 When _LLAMBDA_ is specified, it overrides `lambda[2:0]` from `vtype` for this instruction.
 Inactive elements (masked off) are not written to memory and do not raise exceptions.
 Tail elements (index ≥ VL) are not written to memory and do not raise exceptions.
 +
-Let _linesize_ = `LAMBDA` × LMUL.
+Let _linesize_ = λ × LMUL.
 For each element index `i` in the body `[vstart, VL)` where the mask is enabled:
 +
     M[rs1 + (SEW ÷ 8) × ((i / linesize) × LD + (i % linesize))] = VS[i]
@@ -6142,7 +6147,7 @@ element, the instruction transposes the storage elements but does not
 transpose the packed logical elements within them.
 
 _rs1_ holds the matrix base address; _rs2_ holds the leading dimension `LD` in elements of width SEW.
-If _rs2_ holds zero (0), the leading dimension `LD` is set to VLEN / (SEW × `LAMBDA`),
+If _rs2_ holds zero (0), the leading dimension `LD` is set to VLEN / (SEW × λ),
 which is the natural maximum width of a B tile and height of an A or C tile.
 The parameter _LAMBDA_ refers to the result matrix tile of the transposing load operation.
 When _LLAMBDA_ is specified, it overrides `lambda[2:0]` from `vtype` for this instruction.
@@ -6151,7 +6156,7 @@ Tail elements (index ≥ VL) are left undisturbed in the destination register.
 The tail-agnostic (`vtype.vta`) and mask-agnostic (`vtype.vma`) fill policies do not apply to tile loads.
 Neither inactive nor tail elements raise memory exceptions.
 +
-Let _linesize_ = `LAMBDA` × LMUL.
+Let _linesize_ = λ × LMUL.
 For each element index `i` in the body `[vstart, VL)` where the mask is enabled:
 +
     VD[i] = M[rs1 + (SEW ÷ 8) × ((i % linesize) × LD + (i / linesize))]
@@ -6291,13 +6296,13 @@ The instruction does not unpack, transpose, or repack logical elements
 contained within an `SEW`-bit storage element.
 
 _rs1_ holds the matrix base address; _rs2_ holds the leading dimension `LD` in elements of width SEW.
-If _rs2_ holds zero (0), the leading dimension `LD` is set to VLEN / (SEW × `LAMBDA`).
+If _rs2_ holds zero (0), the leading dimension `LD` is set to VLEN / (SEW × λ).
 The parameter _`LAMBDA`_ refers to the source matrix tile of the transposing store operation.
 When _LLAMBDA_ is specified, it overrides `lambda[2:0]` from `vtype` for this instruction.
 Inactive elements (masked off) are not written to memory and do not raise exceptions.
 Tail elements (index ≥ VL) are not written to memory and do not raise exceptions.
 +
-Let _linesize_ = `LAMBDA` × LMUL.
+Let _linesize_ = λ × LMUL.
 For each element index `i` in the body `[vstart, VL)` where the mask is enabled:
 +
     M[rs1 + (SEW ÷ 8) × ((i % linesize) × LD + (i / linesize))] = VS[i]
@@ -6441,8 +6446,8 @@ and _vd_ as an M×M physical accumulator tile (row-major register
 layout), of which only the first N columns are active.
 _vs1_ and _vs2_ have elements of width SEW÷4; _vd_ has elements of width SEW.
 +
-K_effective = `LAMBDA` × 4 × LMUL.
-`VL` selects how many columns of stem:[B_{\mathrm{tile}}^{T}], and therefore how many columns of C, are active; VL must be a multiple of `LAMBDA` × LMUL.
+K_effective = λ × 4 × LMUL.
+`VL` selects how many columns of stem:[B_{\mathrm{tile}}^{T}], and therefore how many columns of C, are active; VL must be a multiple of λ × LMUL.
 The remaining columns of the physical C tile are C tile tail elements.
 The signedness of each input operand is selected by `altfmt_A` and `altfmt_B` in `vtype`:
 0 = signed, 1 = unsigned.
@@ -6456,8 +6461,8 @@ _Illegal Instruction_ is raised if any of the following conditions holds:
 +
 * `vstart` ≠ 0.
 * `SEW = 8` (`EEW = SEW ÷ 4 = 2` is reserved).
-* VL is not a multiple of `LAMBDA` × LMUL.
-* EMUL_C (= VLEN ÷ (SEW × `LAMBDA`²)) is not in \{1, 2, 4, 8, 16}.
+* VL is not a multiple of λ × LMUL.
+* EMUL_C (= VLEN ÷ (SEW × λ²)) is not in \{1, 2, 4, 8, 16}.
 * _vs1_ or _vs2_ is not aligned for LMUL.
 * _vd_ is not aligned for EMUL_C.
 * When `vm=1`: the selected row in <<tbl-int-encoding-map>> is marked `_reserved_`, or the extension named by that row is not implemented.
@@ -6530,8 +6535,8 @@ and _vd_ as an M×M physical accumulator tile (row-major register
 layout), of which only the first N columns are active.
 _vs1_ and _vs2_ have elements of width SEW÷2; _vd_ has elements of width SEW.
 +
-K_effective = `LAMBDA` × 2 × LMUL.
-`VL` selects how many columns of stem:[B_{\mathrm{tile}}^{T}], and therefore how many columns of C, are active; VL must be a multiple of `LAMBDA` × LMUL.
+K_effective = λ × 2 × LMUL.
+`VL` selects how many columns of stem:[B_{\mathrm{tile}}^{T}], and therefore how many columns of C, are active; VL must be a multiple of λ × LMUL.
 The remaining columns of the physical C tile are C tile tail elements.
 The signedness of each input operand is selected by `altfmt_A` and `altfmt_B` in `vtype`:
 0 = signed, 1 = unsigned.
@@ -6541,8 +6546,8 @@ Exceptions::
 _Illegal Instruction_ is raised if any of the following conditions holds:
 +
 * `vstart` ≠ 0.
-* VL is not a multiple of `LAMBDA` × LMUL.
-* EMUL_C (= VLEN ÷ (SEW × `LAMBDA`²)) is not in \{1, 2, 4, 8, 16}.
+* VL is not a multiple of λ × LMUL.
+* EMUL_C (= VLEN ÷ (SEW × λ²)) is not in \{1, 2, 4, 8, 16}.
 * _vs1_ or _vs2_ is not aligned for LMUL.
 * _vd_ is not aligned for EMUL_C.
 * When `vm=1`: the selected row in <<tbl-int-encoding-map>> is marked `_reserved_`, or the extension named by that row is not implemented.
