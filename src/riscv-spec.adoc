@@ -24,7 +24,7 @@ endif::[]
 :listing-caption: Listing
 :sectnums:
 :partnums:
-:sectnumlevels: 4
+:sectnumlevels: 5
 :sectlinks:
 :toc: left
 :toclevels: 2
