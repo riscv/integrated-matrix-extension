@@ -3,6 +3,6 @@
 
 This chapter is a placeholder for forthcoming matrix extensions (other than Zvvm).
 
-include::integrated-matrix.adoc[]
+include::integrated-matrix.adoc[leveloffset=+1]
 
 //
