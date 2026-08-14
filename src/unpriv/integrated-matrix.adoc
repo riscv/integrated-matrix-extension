@@ -803,11 +803,15 @@ The set of supported nonzero lambda values is an implementation-defined
 function of `VLEN` and `SEW`. `LMUL` does not affect whether a lambda
 value is supported.
 
-A nonzero lambda is _architecturally permissible_ for a given (`VLEN`,
-`SEW`) only when it yields a valid C register group, i.e. when
-`EMUL_C` = `VLEN` ÷ (`SEW` × `LAMBDA`²) is an integer in {`1`, `2`, `4`, `8`,
-`16`} (equivalently, when the resulting tile has `M = N = VLEN ÷ (SEW ×
-`LAMBDA`) ≥ 1`). The _IME-legal configuration domain_ is the set of (`VLEN`,
+A nonzero `LAMBDA` is _architecturally permissible_ for a given (`VLEN`,
+`SEW`) configuration only when it yields a valid C register group; that is,
+when
+
+`EMUL_C` = `VLEN` ÷ (`SEW` × `LAMBDA`²) = `M` ÷ `LAMBDA`
+
+is an integer in {`1`, `2`, `4`, `8`, `16`}.
+
+The _IME-legal configuration domain_ is the set of (`VLEN`,
 `SEW`) for which at least one architecturally permissible nonzero lambda
 exists. Note that lambda = `1` is permissible only when `SEW ≤ VLEN ≤
 16 × SEW`; for `VLEN > 16 × SEW` the minimum permissible lambda is larger
