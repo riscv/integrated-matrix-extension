@@ -1723,10 +1723,11 @@ exception flags may be raised:
   accumulator format and follow the floating-point rules for that format,
   including special-value handling and exception-flag behavior.
 
-* `decode_scale` decodes a scale-format value into the C accumulator format.
-  If that decoding requires conversion to the C accumulator format, the
-  conversion may raise the floating-point exception flags defined by the
-  scale format and the C accumulator format.
+* `decode_scale` decodes a scale-format value into the C accumulator format
+  using the dynamic rounding mode `frm`. If that decoding requires conversion
+  to the C accumulator format, the converted value and accrued floating-point
+  exception flags are those defined by the scale format, the C accumulator
+  format, and `frm`.
 
 NaN payloads are not architecturally significant for IME floating-point
 operations. An internal value represented by `fp_internal` may use any
@@ -1816,16 +1817,26 @@ row/column, and block(_s_) covers elements
 
 `scale_A`~i,s~ and `scale_B`~j,s~ are decoded from the
 per-block scale fields in `v0` according to the scale format associated
-with the input data type.
+with the input data type and converted to the C accumulator format using
+`frm`. For each block, both scale conversions are performed before the
+converted values are multiplied in `fmt_C` using `frm`; exception flags
+from both conversions and the paired-scale multiplication accrue into
+`fflags`.
+
 If the combined block scale -- the product
 `scale_A`~i,s~ × `scale_B`~j,s~ formed in the C
 accumulator format -- is NaN, the corresponding output element
-C~i,j~ is set to the default NaN regardless of the input element
-values, and the evaluation of that output element terminates: the scale
-blocks after the one that produced the NaN scale are not evaluated.
-For the E8M0 scale format this combined-scale NaN occurs exactly when
-either decoded scale is NaN (the encoding 0xFF); for scale formats that
-admit zero and infinity it can also arise from 0 × ∞.
+C~i,j~ is set to the default NaN and evaluation of that output element
+terminates before this block's A×B products or accumulation are evaluated.
+The scale blocks after the one that produced the NaN scale are not
+evaluated, so they contribute no additional exception flags.
+
+For E8M0, a combined block scale is NaN if either encoded scale is 0xFF,
+or if conversion of finite scales to `fmt_C` followed by their `fmt_C`
+multiplication produces NaN. The latter includes a zero-times-infinity
+case when range conversion under `frm` produces zero for one scale and
+infinity for the other.
+
 The exception-flag consequences of this early termination are specified
 in <<integrated-matrix-fp-special-values-fflags>>.
 
@@ -1854,16 +1865,26 @@ Therefore, the exactness of the E8M0 scale encoding does not imply that
 every scaled intermediate or final result is exactly representable in the
 C accumulator format.
 
-When conversion of a non-NaN E8M0 scale value to the accumulator FP format
-overflows, the converted scale value is +∞. For example, the E8M0 scale
-value 2^127^ cannot be represented as a finite IEEE binary16 value.
+Conversion of each non-NaN E8M0 scale value to the accumulator FP format
+uses `frm`. The converted value and accrued exception flags are those of a
+normal conversion to `fmt_C` under that rounding mode. Depending on
+`fmt_C`, `frm`, and the scale value, range conversion may produce a finite
+normal or subnormal value, +0, the largest finite positive value, or +∞.
+For example, the E8M0 scale value 2^127^ cannot be represented as a finite
+IEEE binary16 value and, depending on `frm`, converts to either +∞ or the
+largest finite positive binary16 value. A sufficiently small positive E8M0
+value may similarly convert to either +0 or the minimum positive subnormal
+value. The applicable overflow, underflow, and inexact flags accrue as
+defined by the conversion.
 
-The subsequent block-scale operations follow IEEE 754 rules: +∞ multiplied
-by a non-zero finite value yields ±∞, propagating into the accumulator via
-`fp_add`; +∞ multiplied by zero yields the default NaN, which sets the
-output element to NaN via the NaN propagation rule above. Implementations
-shall handle this case as specified, not as an implementation-defined
-result.
+The paired-scale multiplication and subsequent block-scale operations
+follow IEEE 754 rules. If one converted scale is +0 and the other is +∞,
+the paired-scale multiplication produces the default NaN and raises the
+invalid-operation flag, even though both encoded E8M0 scales are finite. If
+the paired scale is +∞, multiplying it by a non-zero finite partial sum
+yields a signed infinity, while multiplying it by zero produces the default
+NaN. Implementations shall handle these cases as specified, not as
+implementation-defined results.
 
 [#integrated-matrix-mx-shortened-groups]
 ===== Arithmetic considerations and shortened groups
@@ -4406,12 +4427,13 @@ function scale_width_of(sfmt : scale_format) -> int =
   }
 
 decode_scale(scale : bits(sw), scale_fmt : scale_format,
-             EEW : int, fmt : fp_fmt) -> bits(EEW)
+             EEW : int, fmt : fp_fmt,
+             rm : rounding_mode) -> bits(EEW)
 //   Decode a block-scale value of width sw = scale_width_of(scale_fmt)
 //   in the given scale format to the corresponding value in the target
-//   FP format. The scale format is determined by the input data type.
-//   This helper updates fflags for exceptions raised by conversion to
-//   the target FP format.
+//   FP format, rounded per rm. The scale format is determined by the input
+//   data type. This helper updates fflags for exceptions raised by
+//   conversion to the target FP format.
 //   For E8M0: converts an 8-bit exponent-only value (bias 127) to a
 //   power-of-two; the bit pattern 0xFF maps to NaN.
 
@@ -4648,8 +4670,8 @@ function round_group_sum(S : fp_internal,
 // (pw = 2 × sw) are derived from the scale format.
 // When vm=1 (no microscaling), returns (1.0, false).
 // When vm=0, reads a pw-bit scale-pair element from v0, decodes both
-// scale values into the C accumulator format, forms their product with
-// fp_mul, and returns (scale_A × scale_B, is_nan). This operation follows
+// scale values into the C accumulator format using rm, forms their product
+// with fp_mul, and returns (scale_A × scale_B, is_nan). This operation follows
 // the accumulator-format floating-point rules and may raise exception flags.
 function read_block_scales(vm : bit, i : int, j : int, s : int,
                            R : int, EEW_C : int, fmt_C : fp_fmt,
@@ -4669,11 +4691,11 @@ function read_block_scales(vm : bit, i : int, j : int, s : int,
 
   let sA : bits(EEW_C) =
     if vm == 0
-    then decode_scale(pair_A[sw-1..0], scale_fmt, EEW_C, fmt_C)
+    then decode_scale(pair_A[sw-1..0], scale_fmt, EEW_C, fmt_C, rm)
     else fp_one(EEW_C, fmt_C);
   let sB : bits(EEW_C) =
     if vm == 0
-    then decode_scale(pair_B[2*sw-1..sw], scale_fmt, EEW_C, fmt_C)
+    then decode_scale(pair_B[2*sw-1..sw], scale_fmt, EEW_C, fmt_C, rm)
     else fp_one(EEW_C, fmt_C);
 
   let blk_scale : bits(EEW_C) = fp_mul(sA, sB, EEW_C, fmt_C, rm);
