@@ -1368,7 +1368,8 @@ The `W` multiplications of (`SEW÷W`)-bit elements are performed and their produ
 
 There are K~eff~ ÷ `W` = `LAMBDA` × `LMUL` sub-dot-products per output element.
 
-When `W` = `1`, each product of two `SEW`-bit values is exact at `2` × `SEW` bits; a sub-dot-product consists of a single product term.
+When `W` = `1`, a sub-dot-product consists of a single product term.
+That term is the exact mathematical product of the corresponding input values.
 
 [#accumulation-and-rounding-model]
 ===== Accumulation and rounding model (floating-point)
