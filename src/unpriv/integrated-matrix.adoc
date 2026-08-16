@@ -2598,8 +2598,9 @@ accumulator tile, which remains `N_tile_max`.
 
 When `N_tile` < `N_tile_max`, the elements C~i,j~ for
 `0 ≤ i < M_tile` and `N_tile ≤ j < N_tile_max` are _C tile tail
-elements_. Multiply-accumulate instructions never read or write C tile
-tail elements.
+elements_. C tile tail elements do not participate in the
+multiply-accumulate computation, and their pre-instruction values are not
+read as arithmetic inputs.
 
 C tile tail elements are defined by the two-dimensional C tile geometry,
 not by the ordinary one-dimensional vector condition `element_index ≥ VL`.
@@ -2607,29 +2608,28 @@ In particular, active C elements are those whose C column index satisfies
 `j < N_tile`, even though their physical register-group indices are
 computed using the fixed row stride `N_tile_max`.
 
-* If `vta` = 0 (tail-undisturbed): C tile tail elements retain their
-  pre-instruction values. This is achieved by write-skip - the instruction
-  simply does not access those element positions. Implementations are
-  therefore not required to read the tail columns of the C register group.
+* If `vta` = 0 (tail-undisturbed), C tile tail elements retain their
+  pre-instruction values.
 
-* If `vta` = 1 (tail-agnostic): C tile tail elements may be written with
-  any value, including all-ones, or left unchanged. Implementations are
-  likewise not required to read the tail elements before deciding what to
-  write.
+* If `vta` = 1 (tail-agnostic), each C tile tail element may independently
+  retain its pre-instruction value or be overwritten with an all-ones
+  `SEW`-bit pattern. The choice may vary independently among C tile tail
+  elements and need not be deterministic.
+
+If `VL` = 0, no C element is updated, regardless of `vta`.
 
 [NOTE]
 ====
-This differs from the tail policy for ordinary vector instructions, where
-tail-undisturbed is typically implemented via read-merge: the implementation
-reads the old destination register contents, updates active positions, and
-writes the merged result back.
+The architectural requirements above do not prescribe an implementation
+mechanism. An implementation may preserve C tile tail elements by
+suppressing writes, retaining an old physical-register mapping, performing
+a read-merge, or using any other mechanism that produces the required
+architectural result.
 
-For IME multiply-accumulate instructions, undisturbed behaviour can be
-implemented without reading C tile tail elements: the instruction leaves
-tail element positions untouched.
-This permits hardware implementations, including outer-product
-engines and register-renaming machines, to process only the `N_tile` active
-columns of the C tile without referencing the inactive C tile columns.
+No C tile tail value contributes to an active C result. This permits
+hardware implementations, including outer-product engines and
+register-renaming machines, to process only the `N_tile` active columns of
+the C tile without using the inactive C tile columns as arithmetic inputs.
 ====
 
 ==== Memory layout and instruction selection
