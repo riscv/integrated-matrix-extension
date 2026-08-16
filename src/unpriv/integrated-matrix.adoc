@@ -1425,7 +1425,16 @@ For microscaled instructions, additional microscaling block boundaries apply; se
 
 ** If `psm=0`, the partial sum `S` is formed using exact computation: the contributing products and sums are computed in sufficiently precise internal form, without rounding to the C accumulator format, until the next rounding step defined by this specification.
 
-** If `psm=1`, the partial sum `S` is formed using an _implementation-defined_ non-exact reduction of the group's products. The reduction may use any internal representation chosen by the implementation. An implementation that supports `psm=1` for a given (`SEW`, `W`, `lambda`) shall publish, alongside its (`G`, `psm`, `rnd`) disclosure, the specific reduction algorithm and the values of any parameters it takes; two implementations are bit-exactly compatible at `psm=1` only if both disclose the same algorithm with the same parameters.
+** If `psm=1`, the partial sum `S` is formed using an
+   _implementation-defined_ non-exact reduction of the group's products. The
+   reduction receives the exact products in the canonical increasing-K order
+   defined below and may be order-sensitive. It may use any internal
+   representation chosen by the implementation. An implementation that
+   supports `psm=1` for a given (`SEW`, `W`, `lambda`) shall publish, alongside
+   its (`G`, `psm`, `rnd`) disclosure, the specific reduction algorithm and the
+   values of any parameters it takes. Two implementations are bit-exactly
+   compatible at `psm=1` only if both disclose the same algorithm, ordering
+   behavior, and parameters.
 
 * Once the partial sum `S` is computed, and before it is accumulated into the result C, it is treated according to an implementation-defined parameter `rnd`.
 
@@ -1522,11 +1531,23 @@ may be any value `g_len` such that `1 ≤ g_len ≤ G`, because groups are
 shortened at microscaling block boundaries as described in
 <<integrated-matrix-mx-shortened-groups>>.
 
+For every full or shortened group, the exact products supplied to
+`fp_disclosed_reduce_group` are ordered by increasing logical K index, from
+that group's `k_lo` through `k_hi`. When `W > 1`, the `W` products belonging
+to each sub-dot-product therefore occupy consecutive positions in increasing
+logical K order. A disclosed reduction may process this sequence directly or
+may reassociate, pair, or reorder its products internally, but its
+implementation-specific SAIL fragment shall completely define how the ordered
+input sequence is processed.
+
 When composed with the shared SAIL pseudocode of this specification, the
 published fragment shall reproduce, bit-exactly, both the result that the
 implementation computes and the floating-point exception flags that the
-implementation accrues for every legal input. The published fragment shall
-identify the version of this specification against which it was authored.
+implementation accrues for every legal input. For an order-sensitive
+reduction, this requirement includes all result and exception-flag behavior
+that depends on the canonical input order or on any internally disclosed
+reordering. The published fragment shall identify the version of this
+specification against which it was authored.
 
 A SAIL fragment in this form constitutes the machine-executable disclosure
 of the reduction algorithm. Natural-language text and parameter tables may
@@ -1725,10 +1746,11 @@ define both the result bits and the accrued exception flags.
 For `psm=1`, the implementation-specific SAIL fragment that completes the
 architectural disclosure shall define both the result value produced by the
 non-exact reduction and any floating-point exception flags raised by that
-reduction. When composed with the shared SAIL-like pseudocode of this
-specification, the implementation-specific fragment shall reproduce both
-the hardware result bits and the hardware accrued `fflags` value for every
-legal input.
+reduction. This definition includes any result or exception-flag behavior
+that depends on product order. When composed with the shared SAIL-like
+pseudocode of this specification, the implementation-specific fragment shall
+reproduce both the hardware result bits and the hardware accrued `fflags`
+value for every legal input.
 
 [NOTE]
 ====
@@ -1901,8 +1923,10 @@ For `psm=0`, the exact-reduction rule applies to the actual group length
 For `psm=1`, the implementation-specific architectural disclosure shall
 define the reduction result and exception-flag behavior for every actual
 group length `g_len` that can occur for the disclosed
-(`SEW`, `W`, `lambda`) entry. In particular, the disclosed SAIL fragment
-shall not assume that every microscaled group has length exactly `G`.
+(`SEW`, `W`, `lambda`) entry. The exact products for each such group are
+supplied in increasing logical K order. In particular, the disclosed SAIL
+fragment shall neither assume that every microscaled group has length exactly
+`G` nor leave any order-dependent behavior unspecified.
 
 The partial sum `S` is then scaled by
 `scale_A`~i,s~ × `scale_B`~j,s~, using the scale
@@ -4465,17 +4489,33 @@ val fp_internal_add : (fp_internal, fp_internal) -> fp_internal
 // widths, and any other format-dependent parameters, that the disclosed
 // algorithm may need. g_len and W give the term count (g_len x W).
 //
-// The reduction is defined
-// to be independent of the order in which the products appear in the
-// list. The returned value has not yet been rounded to the C accumulator
-// format; any terminal rounding (e.g. RVBNA's round-to-odd) is applied by
-// the separate rnd step.
+// The list presents the products in increasing logical K order. The
+// disclosed reduction may be order-sensitive and may reassociate, pair, or
+// reorder the products internally, but its SAIL definition must completely
+// specify that behavior. The returned value has not yet been rounded to the
+// C accumulator format; any terminal rounding (e.g. RVBNA's round-to-odd) is
+// applied by the separate rnd step.
 //
 // The SAIL leaves the operation abstract here: two implementations
 // producing different numerical results or different accrued fflags may
-// both be conforming, provided each discloses its algorithm, parameters,
-// and exception-flag behavior.
+// both be conforming, provided each discloses its algorithm, ordering
+// behavior, parameters, and exception-flag behavior.
 val fp_disclosed_reduce_group : (list(fp_internal), fp_fmt, fp_fmt, fp_fmt, int, int) -> fp_internal
+
+// The product-gathering loop below prepends each newly computed product.
+// Reverse that temporary list once so fp_disclosed_reduce_group receives the
+// products in increasing logical K order.
+val fp_reverse_products_acc :
+  (list(fp_internal), list(fp_internal)) -> list(fp_internal)
+function fp_reverse_products_acc(xs, acc) =
+  match xs {
+    [||]      => acc,
+    x :: rest => fp_reverse_products_acc(rest, x :: acc)
+  }
+
+val fp_reverse_products : list(fp_internal) -> list(fp_internal)
+function fp_reverse_products(xs) =
+  fp_reverse_products_acc(xs, [||])
 
 
 // Group partial sum S for one output element.
@@ -4519,9 +4559,10 @@ function fp_group_sum(i : int, j : int,
     PSM_DISCLOSED => {
       // Gather the group's exact products, then reduce them in a single
       // bulk operation so that a disclosed bulk-normalisation algorithm
-      // (e.g. RVBNA) can normalise all terms together. The reduction is
-      // order-independent, so the list order is unspecified.
-      var prods : list(fp_internal) = [||];
+      // (e.g. RVBNA) can normalise all terms together. The loop visits k in
+      // increasing order and prepends each product, so prods_rev is reversed
+      // once before invoking the disclosed reduction.
+      var prods_rev : list(fp_internal) = [||];
       foreach (k from k_lo to k_hi) {
         let a_flat : int = mat_A_idx(i, k, g.K_eff, g.LMUL, g.lambda, g.W, g.epr_A);
         let b_flat : int = mat_B_idx(k, j, g.K_eff, g.LMUL, g.lambda, g.W, g.epr_A);
@@ -4530,8 +4571,9 @@ function fp_group_sum(i : int, j : int,
         let b_bits : bits(g.EEW_A) = read_single_element(g.EEW_A, b_flat, vs2);
 
         let prod : fp_internal = fp_mul_exact(a_bits, fmt_A, b_bits, fmt_B);
-        prods = prod :: prods
+        prods_rev = prod :: prods_rev
       };
+      let prods : list(fp_internal) = fp_reverse_products(prods_rev);
       fp_disclosed_reduce_group(prods, fmt_A, fmt_B, fmt_C, g_len, g.W)
     }
   }
