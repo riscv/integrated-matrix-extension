@@ -1226,10 +1226,11 @@ In particular, the implementation-defined mapping from (`SEW`, `W`, `lambda`) to
 
 [NOTE]
 ====
-The exact product of two floating-point values with p~A~ and p~B~
-significand bits has at most p~A~ + p~B~ significand bits.  An
-implementation may compute the product in any internal format with at
-least that many significand bits.
+The exact product of two finite floating-point values with p~A~ and p~B~
+significand bits has at most p~A~ + p~B~ significand bits. An
+implementation may compute the product in any internal representation that
+preserves the exact significand and provides sufficient exponent range for
+the exact product.
 
 .Significand widths (p) of supported formats
 [cols="4,1"]
@@ -1246,17 +1247,24 @@ least that many significand bits.
 | IEEE binary64 | 53
 |===
 
-When p~A~ + p~B~ ≤ p~C~, the exact product is representable in `fmt_C`.
-Therefore, if the accumulation model later requires a value containing that
-product to be rounded to the C accumulator format, the product itself does
-not introduce additional rounding error.  This holds for all mixed-format
-widening combinations. For example, E4M3 × E5M2 → FP16
-(4 + 3 = 7 ≤ 11) and FP16 × BF16 → FP32 (11 + 8 = 19 ≤ 24).
+When p~A~ + p~B~ ≤ p~C~, `fmt_C` has sufficient significand precision
+to represent the exact product without loss of significand bits. This
+condition alone does not guarantee that the exact product is representable
+in `fmt_C`: the product may still lie outside the exponent range of
+`fmt_C`, or may require rounding in its subnormal range.
+
+The significand-width condition holds for all mixed-format widening
+combinations. For example, E4M3 × E5M2 → FP16 satisfies
+4 + 3 = 7 ≤ 11, and FP16 × BF16 → FP32 satisfies
+11 + 8 = 19 ≤ 24. Extreme operand values may nevertheless produce exact
+products that overflow, underflow, or require range-related rounding when
+a later operation converts or rounds the result to `fmt_C`.
 
 An implementation need not use a standard IEEE 754 type for the internal
-product; any representation that captures the exact product (e.g., an
-integer significand-exponent pair) suffices, provided the overall matrix
-multiply-accumulate result matches the semantics defined in <<arithmetic-considerations>>.
+product. Any representation that captures the exact product, such as an
+integer significand-exponent pair, is sufficient, provided the overall
+matrix multiply-accumulate result matches the semantics defined in
+<<arithmetic-considerations>>.
 ====
 
 All floating-point matrix multiply-accumulate instructions, including mixed-format and microscaling variants, shall follow the normative rules in <<arithmetic-considerations>> for grouping, partial-sum formation, optional rounding of partial sums, and final accumulation into C.
