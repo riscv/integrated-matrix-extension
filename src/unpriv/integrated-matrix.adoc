@@ -1427,17 +1427,17 @@ The three `rnd` values are not numerically interchangeable.
 
 When a group partial sum `S` is first rounded to the C accumulator format
 and then accumulated into C~i,j~, the computation has two rounding
-points: one when the partial sum is rounded, and another when the
-accumulation
+points: one when the partial sum is rounded, and another when the following
+accumulation is performed:
 
 [%unbreakable]
-====
+======
 [.text-center]
 round~frm~(C~i,j~ + S)
-====
+======
 
-is performed. This two-stage rounding can differ from an accumulation
-performed with the exact partial sum.
+This two-stage rounding can differ from an accumulation performed with the
+exact partial sum.
 
 When `rnd=xct`, the partial sum `S` is not rounded to the C accumulator
 format before accumulation. The exact internal partial sum is accumulated
