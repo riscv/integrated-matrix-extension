@@ -2848,12 +2848,20 @@ const int EMUL_C     = M_tile / lambda;
 const int VL_A       = M_tile * lambda * LMUL_AB;
 const int VL_C_full  = M_tile * N_tile_max;
 
-for (j = 0; j < N; j += N_tile) {
-    // Choose N_tile: how many B/C columns to handle this iteration.
-    // vsetvl rounds down to a multiple of K_eff automatically.
+for (j = 0; j < N; j += N_tile_max) {
+    // Select the active number of B/C columns explicitly. Full-width
+    // tiles are followed by at most one partial tile.
+    const int N_tile = min(N - j, N_tile_max);
+
+    // VL counts SEW-wide storage elements. Each active B/C column
+    // contributes lambda * LMUL_AB such elements. Because N_tile is no
+    // greater than N_tile_max, vl_compute is no greater than VLMAX, so
+    // vsetvl shall return exactly the requested value.
+    const int vl_compute = lambda * LMUL_AB * N_tile;
+
     configure_vtype(SEW=32, LMUL=1, lambda=4);
-    vl_compute = vsetvl_e32m1(K_eff * (N - j));
-    N_tile     = vl_compute / K_eff;
+    const int vl_actual = vsetvl_e32m1(vl_compute);
+    assert(vl_actual == vl_compute);
 
     // Construct a C-column mask in v0 for the fixed physical C tile.
     // For physical C tile element p:
