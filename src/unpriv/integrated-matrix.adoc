@@ -332,7 +332,15 @@ Achieved performance at the thread level is also constrained by operation latenc
 As previously discussed, a larger choice of `M`, and corresponding `EMUL_C`, leads to higher compute intensity.
 (If the shape of the C tile being computed is `M` × `M`, then the largest multiplier array that can be used effectively is also `M` × `M`. However, it is always possible to use a smaller array, but that leads to lower performance.)
 
-*Cacheline utilization of the tile loads.* The base `LAMBDA` can be extended along K by `LMUL`, giving an effective contraction depth `K_eff` = `LAMBDA` · `LMUL` (<<ISA-control-geometry>>, <<ime-tile-lmul-fig>>). Each matrix row streamed by an order-preserving tile load `vmtl` is therefore `K_eff` · `SEW` = `LAMBDA` · `LMUL` · `SEW` bits of contiguous data, and this length determines how well each row maps onto a memory cacheline. For `SEW` = 32 and a 512-bit (64-byte) cacheline: configuration (a), with `LAMBDA` = 1, streams at most 8 · 32 = 256 bits per row even at the maximum `LMUL` = 8, filling only half a cacheline; configuration (b), with `LAMBDA` = 2, reaches a full 512-bit line at `LMUL` = 8; and configuration (c), with `LAMBDA` = 4, reaches a full line already at `LMUL` = 4. A `LAMBDA` that is too small can thus leave `vmtl` unable to issue full-cacheline row transfers within the available `LMUL`, wasting bandwidth on partial lines. This gives a lower bound on the useful `LAMBDA` that is independent of, and may exceed, the minimum required for legality.
+*Cacheline utilization of the tile loads.* `LMUL` extends each A and B row along the K dimension. An order-preserving tile load `vmtl` transfers `LAMBDA` × `LMUL` contiguous `SEW`-bit storage elements per row. For a widening instruction, each such storage element contains `W` logical input elements of width `SEW`/`W`, so the arithmetic depth is
+
+    K_eff = LAMBDA × W × LMUL.
+
+The amount of storage transferred for each row is therefore
+
+    LAMBDA × LMUL × SEW = K_eff × (SEW/W)
+
+bits. This row length determines how well each transfer maps onto a memory cacheline. For `SEW` = 32 and a 512-bit (64-byte) cacheline: configuration (a), with `LAMBDA` = 1, transfers at most 8 × 32 = 256 bits per row even at the maximum `LMUL` = 8, filling only half a cacheline; configuration (b), with `LAMBDA` = 2, reaches a full 512-bit line at `LMUL` = 8; and configuration (c), with `LAMBDA` = 4, reaches a full line already at `LMUL` = 4. A `LAMBDA` that is too small can thus leave `vmtl` unable to issue full-cacheline row transfers within the available `LMUL`, wasting bandwidth on partial lines. This gives a lower bound on the useful `LAMBDA` that is independent of, and may exceed, the minimum required for legality.
 
 *Summary of the trade-off.* `LAMBDA` (and thus `EMUL_C`) is selected to balance three competing objectives: high compute intensity and peak throughput, which favour small `LAMBDA` (large C-panel, large `EMUL_C`); bounded multiplier area and power, which favour large `LAMBDA`; and full-cacheline tile loads, which impose a minimum useful `LAMBDA`. The resulting choice must in all cases satisfy the legality constraints of <<ime-emulc-table>>, in particular `EMUL_C` ∈ {1, 2, 4, 8, 16} and the reservation of register groups for the A and B operands.
 
