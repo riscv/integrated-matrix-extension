@@ -423,6 +423,16 @@ element offset within that register is
 division and `%` denotes remainder. The `W` logical elements packed within
 each `SEW`-wide storage position occupy consecutive K indices.
 
+The C accumulator register group `vd` shall not overlap either input
+register group `vs1` or `vs2`. Two register groups overlap when they name at
+least one architectural vector register in common. This destination-overlap
+restriction applies regardless of `VL`, including when `VL` = 0.
+
+The two input register groups may overlap each other. Because both input
+groups use the same `LMUL` and each base register is `LMUL`-aligned, this can
+occur only when they use the same base register; partial overlap is not
+possible.
+
 [#ime-geometry-fig]
 .Geometry of matrix tiles and element ordering for `VLEN`/`SEW` (vector length in C element width) = 32 and `LAMBDA`=4. Vector register groups are interpreted as 2D tiles. Vector element indices show the tile element order. (a) Non-widening case (W=1) with A, B, and C having the same SEW. (b) Double-widening case (W=2) with A and B at half the SEW of C, with two narrow input elements packed into each SEW-wide storage position.
 image::png/ime-geometry.png[width=100%, align=center, alt="Diagram of matrix tile geometry and multiplier configuration parameters."]
@@ -4199,15 +4209,33 @@ function check_ime_reg_group(base : regidx, LMUL : int) -> unit = {
     return Illegal_Instruction()
 }
 
-// Check register-group alignment and bounds for a multiply-accumulate.
-// The A and B input operands (vs1, vs2) form LMUL-register groups; the C
-// accumulator (vd) forms an EMUL_C-register group. Raises
-// illegal-instruction if any group is misaligned or extends past v31.
+// Return true when two architectural vector-register groups share at least
+// one register. Each group denotes the half-open range [base, base + regs).
+function ime_reg_groups_overlap(base_a : regidx, regs_a : int,
+                                base_b : regidx, regs_b : int) -> bool = {
+  let a0 : int = unsigned(base_a);
+  let b0 : int = unsigned(base_b);
+
+  not (a0 + regs_a <= b0 | b0 + regs_b <= a0)
+}
+
+// Check register-group alignment, bounds, and destination/source overlap for
+// a multiply-accumulate. The A and B input operands (vs1, vs2) form
+// LMUL-register groups; the C accumulator (vd) forms an EMUL_C-register
+// group. The two input groups may overlap each other, but the destination
+// group shall not overlap either input group.
 function check_gemm_reg_groups(g : gemm_geom,
                                vs1 : regidx, vs2 : regidx, vd : regidx) -> unit = {
   check_ime_reg_group(vs1, g.LMUL);
   check_ime_reg_group(vs2, g.LMUL);
-  check_ime_reg_group(vd,  g.EMUL_C)
+  check_ime_reg_group(vd,  g.EMUL_C);
+
+  let vd_overlaps_input : bool =
+    ime_reg_groups_overlap(vd, g.EMUL_C, vs1, g.LMUL) |
+    ime_reg_groups_overlap(vd, g.EMUL_C, vs2, g.LMUL);
+
+  if vd_overlaps_input then
+    return Illegal_Instruction()
 }
 
 
@@ -4930,6 +4958,7 @@ _Illegal Instruction_ is raised if any of the following conditions holds:
 * EMUL_C (= VLEN ÷ (SEW × LAMBDA²)) is not in \{1, 2, 4, 8, 16}.
 * _vs1_ or _vs2_ is not aligned for LMUL.
 * _vd_ is not aligned for EMUL_C.
+* The _vd_ register group overlaps the _vs1_ or _vs2_ register group.
 * When `vm=1`: the selected row in <<tbl-int-encoding-map>> is marked `_reserved_`, or the extension named by that row is not implemented.
 
 Operation::
@@ -5026,6 +5055,7 @@ _Illegal Instruction_ is raised if any of the following conditions holds:
 * EMUL_C (= VLEN ÷ (SEW × LAMBDA²)) is not in \{1, 2, 4, 8, 16}.
 * _vs1_ or _vs2_ is not aligned for LMUL.
 * _vd_ is not aligned for EMUL_C.
+* The _vd_ register group overlaps the _vs1_ or _vs2_ register group.
 * When `vm=0`: the selected MX cell in <<tbl-fp-encoding-map>> is `—` or `_reserved_`, or any required extension named by that cell is not implemented.
 * When `vm=0`: SEW × LAMBDA < 16.
 * When `vm=0` and `bs=1`: W × LMUL > SEW (i.e., 8 × LMUL > SEW).
@@ -5138,6 +5168,7 @@ _Illegal Instruction_ is raised if any of the following conditions holds:
 * EMUL_C (= VLEN ÷ (SEW × LAMBDA²)) is not in \{1, 2, 4, 8, 16}.
 * _vs1_ or _vs2_ is not aligned for LMUL.
 * _vd_ is not aligned for EMUL_C.
+* The _vd_ register group overlaps the _vs1_ or _vs2_ register group.
 * The selected row in <<tbl-fp-encoding-map>> is marked `_reserved_`, or any extension named by that row is not implemented.
 
 Operation::
@@ -5237,6 +5268,7 @@ _Illegal Instruction_ is raised if any of the following conditions holds:
 * EMUL_C (= VLEN ÷ (SEW × LAMBDA²)) is not in \{1, 2, 4, 8, 16}.
 * _vs1_ or _vs2_ is not aligned for LMUL.
 * _vd_ is not aligned for EMUL_C.
+* The _vd_ register group overlaps the _vs1_ or _vs2_ register group.
 * When `vm=0`: the selected MX cell in <<tbl-fp-encoding-map>> is `—` or `_reserved_`, or any required extension named by that cell is not implemented.
 * When `vm=0`: SEW × LAMBDA < 16.
 * When `vm=0` and `bs=1`: W × LMUL > SEW.
@@ -5354,6 +5386,7 @@ _Illegal Instruction_ is raised if any of the following conditions holds:
 * EMUL_C (= VLEN ÷ (SEW × LAMBDA²)) is not in \{1, 2, 4, 8, 16}.
 * _vs1_ or _vs2_ is not aligned for LMUL.
 * _vd_ is not aligned for EMUL_C.
+* The _vd_ register group overlaps the _vs1_ or _vs2_ register group.
 * When `vm=0`: the selected MX cell in <<tbl-fp-encoding-map>> is `—` or `_reserved_`, or any required extension named by that cell is not implemented.
 * When `vm=0`: SEW × LAMBDA < 16.
 * When `vm=0` and `bs=1`: W × LMUL > SEW.
@@ -5475,6 +5508,7 @@ _Illegal Instruction_ is raised if any of the following conditions holds:
 * EMUL_C (= VLEN ÷ (SEW × LAMBDA²)) is not in \{1, 2, 4, 8, 16}.
 * _vs1_ or _vs2_ is not aligned for LMUL.
 * _vd_ is not aligned for EMUL_C.
+* The _vd_ register group overlaps the _vs1_ or _vs2_ register group.
 * SEW × LAMBDA < 16.
 * When `bs=1`: W × LMUL > SEW (i.e., 2 × LMUL > SEW).
 * _vd_, _vs1_, or _vs2_ overlaps `v0`.
@@ -5591,6 +5625,7 @@ _Illegal Instruction_ is raised if any of the following conditions holds:
 * EMUL_C (= VLEN ÷ (SEW × LAMBDA²)) is not in \{1, 2, 4, 8, 16}.
 * _vs1_ or _vs2_ is not aligned for LMUL.
 * _vd_ is not aligned for EMUL_C.
+* The _vd_ register group overlaps the _vs1_ or _vs2_ register group.
 * SEW × LAMBDA < 16.
 * When `bs=1`: W × LMUL > SEW (i.e., 8 × LMUL > SEW).
 * _vd_, _vs1_, or _vs2_ overlaps `v0`.
@@ -5706,6 +5741,7 @@ _Illegal Instruction_ is raised if any of the following conditions holds:
 * EMUL_C (= VLEN ÷ (SEW × LAMBDA²)) is not in \{1, 2, 4, 8, 16}.
 * _vs1_ or _vs2_ is not aligned for LMUL.
 * _vd_ is not aligned for EMUL_C.
+* The _vd_ register group overlaps the _vs1_ or _vs2_ register group.
 * SEW × LAMBDA < 16.
 * When `bs=1`: W × LMUL > SEW (i.e., 4 × LMUL > SEW).
 * _vd_, _vs1_, or _vs2_ overlaps `v0`.
@@ -5807,6 +5843,7 @@ _Illegal Instruction_ is raised if any of the following conditions holds:
 * EMUL_C (= VLEN ÷ (SEW × LAMBDA²)) is not in \{1, 2, 4, 8, 16}.
 * _vs1_ or _vs2_ is not aligned for LMUL.
 * _vd_ is not aligned for EMUL_C.
+* The _vd_ register group overlaps the _vs1_ or _vs2_ register group.
 * The selected row in <<tbl-int-encoding-map>> is marked `_reserved_`, or the extension named by that row is not implemented.
 
 Operation::
@@ -6484,6 +6521,7 @@ _Illegal Instruction_ is raised if any of the following conditions holds:
 * EMUL_C (= VLEN ÷ (SEW × LAMBDA²)) is not in \{1, 2, 4, 8, 16}.
 * _vs1_ or _vs2_ is not aligned for LMUL.
 * _vd_ is not aligned for EMUL_C.
+* The _vd_ register group overlaps the _vs1_ or _vs2_ register group.
 * When `vm=1`: the selected row in <<tbl-int-encoding-map>> is marked `_reserved_`, or the extension named by that row is not implemented.
 
 Operation::
@@ -6569,6 +6607,7 @@ _Illegal Instruction_ is raised if any of the following conditions holds:
 * EMUL_C (= VLEN ÷ (SEW × LAMBDA²)) is not in \{1, 2, 4, 8, 16}.
 * _vs1_ or _vs2_ is not aligned for LMUL.
 * _vd_ is not aligned for EMUL_C.
+* The _vd_ register group overlaps the _vs1_ or _vs2_ register group.
 * When `vm=1`: the selected row in <<tbl-int-encoding-map>> is marked `_reserved_`, or the extension named by that row is not implemented.
 
 Operation::
