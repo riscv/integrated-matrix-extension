@@ -412,6 +412,17 @@ vector intrinsic types. See <<integrated-matrix-ime-m16-types>>.
   <<ime-geometry-fig>>.
   The elements of the A, B, and C tiles are stored in row-major register layout.
 
+For the logical input-element width `EEW_A = SEW/W`, each vector register
+in an A or B register group contains `LAMBDA × W` consecutive logical K
+elements from each represented tile row. The registers of the `LMUL`
+group are concatenated in increasing register-number order along the K
+dimension. Thus, for a logical element at row index `r` and K index `k`,
+the register offset within the group is `k / (LAMBDA × W)`, and the
+element offset within that register is
+`r × (LAMBDA × W) + k % (LAMBDA × W)`, where `/` denotes integer
+division and `%` denotes remainder. The `W` logical elements packed within
+each `SEW`-wide storage position occupy consecutive K indices.
+
 [#ime-geometry-fig]
 .Geometry of matrix tiles and element ordering for `VLEN`/`SEW` (vector length in C element width) = 32 and `LAMBDA`=4. Vector register groups are interpreted as 2D tiles. Vector element indices show the tile element order. (a) Non-widening case (W=1) with A, B, and C having the same SEW. (b) Double-widening case (W=2) with A and B at half the SEW of C, with two narrow input elements packed into each SEW-wide storage position.
 image::png/ime-geometry.png[width=100%, align=center, alt="Diagram of matrix tile geometry and multiplier configuration parameters."]
@@ -4242,29 +4253,39 @@ function decode_tile_ls_geometry(lam_enc : bits(3)) -> tile_ls_geom = {
 //   register-group element index flat_idx, using the same flat-index ->
 //   (register, in-register element) mapping as read_single_element.
 
-// Map sequential tile element index i to the flat register-group element index.
-// linesize = lambda * LMUL; elements within one tile row span LMUL registers.
-function tile_reg_idx(i : int, LMUL : int, lambda : int, elems_per_reg : int) -> int = {
-  let linesize     : int = lambda * LMUL;
+// Map sequential tile element index i to the flat register-group element
+// index. row_elems_per_reg is the number of consecutive elements from
+// each tile row stored in one register, and group_regs is the number of
+// registers in the group.
+function tile_reg_idx(i : int, group_regs : int,
+                      row_elems_per_reg : int,
+                      elems_per_reg : int) -> int = {
+  let linesize     : int = row_elems_per_reg * group_regs;
   let line         : int = i / linesize;
   let elem_in_line : int = i % linesize;
-  let regoff       : int = elem_in_line / lambda;
-  let elementoff   : int = line * lambda + elem_in_line % lambda;
+  let regoff       : int = elem_in_line / row_elems_per_reg;
+  let elementoff   : int =
+      line * row_elems_per_reg + elem_in_line % row_elems_per_reg;
   regoff * elems_per_reg + elementoff
 }
 
 // A[i, k] in vs1: A is stored row-major (rows are the outer dimension).
+// Each register contributes lambda * W consecutive logical K elements
+// from each row.
 function mat_A_idx(i : int, k : int, K_eff : int,
-                   LMUL : int, lambda : int, epr : int) -> int =
-  tile_reg_idx(i * K_eff + k, LMUL, lambda, epr)
+                   LMUL : int, lambda : int, W : int,
+                   epr : int) -> int =
+  tile_reg_idx(i * K_eff + k, LMUL, lambda * W, epr)
 
 // B_tile^T[k, j] in vs2: B_tile^T has shape K_eff x N and is
 // stored column-major. Column j contributes to output column j.
 // Equivalently, this element is B_tile[j, k] in the row-major
-// N x K_eff view of the same register contents.
+// N x K_eff view of the same register contents. Each register contributes
+// lambda * W consecutive logical K elements from each row.
 function mat_B_idx(k : int, j : int, K_eff : int,
-                   LMUL : int, lambda : int, epr : int) -> int =
-  tile_reg_idx(j * K_eff + k, LMUL, lambda, epr)
+                   LMUL : int, lambda : int, W : int,
+                   epr : int) -> int =
+  tile_reg_idx(j * K_eff + k, LMUL, lambda * W, epr)
 
 // C[i, j] in vd: C is stored in a fixed physical row-major tile.
 // The physical row stride is N_max (= M), not the active column count N.
@@ -4455,8 +4476,8 @@ function fp_group_sum(i : int, j : int,
     PSM_EXACT => {
       var S : fp_internal = fp_internal_zero();
       foreach (k from k_lo to k_hi) {
-        let a_flat : int = mat_A_idx(i, k, g.K_eff, g.LMUL, g.lambda, g.epr_A);
-        let b_flat : int = mat_B_idx(k, j, g.K_eff, g.LMUL, g.lambda, g.epr_A);
+        let a_flat : int = mat_A_idx(i, k, g.K_eff, g.LMUL, g.lambda, g.W, g.epr_A);
+        let b_flat : int = mat_B_idx(k, j, g.K_eff, g.LMUL, g.lambda, g.W, g.epr_A);
 
         let a_bits : bits(g.EEW_A) = read_single_element(g.EEW_A, a_flat, vs1);
         let b_bits : bits(g.EEW_A) = read_single_element(g.EEW_A, b_flat, vs2);
@@ -4474,8 +4495,8 @@ function fp_group_sum(i : int, j : int,
       // order-independent, so the list order is unspecified.
       var prods : list(fp_internal) = [||];
       foreach (k from k_lo to k_hi) {
-        let a_flat : int = mat_A_idx(i, k, g.K_eff, g.LMUL, g.lambda, g.epr_A);
-        let b_flat : int = mat_B_idx(k, j, g.K_eff, g.LMUL, g.lambda, g.epr_A);
+        let a_flat : int = mat_A_idx(i, k, g.K_eff, g.LMUL, g.lambda, g.W, g.epr_A);
+        let b_flat : int = mat_B_idx(k, j, g.K_eff, g.LMUL, g.lambda, g.W, g.epr_A);
 
         let a_bits : bits(g.EEW_A) = read_single_element(g.EEW_A, a_flat, vs1);
         let b_bits : bits(g.EEW_A) = read_single_element(g.EEW_A, b_flat, vs2);
@@ -4574,8 +4595,8 @@ function int_block_dot(i : int, j : int, k_lo : int, k_hi : int,
                        vs1 : regidx, vs2 : regidx) -> int = {
   var int_sum : int = 0;
   foreach (k from k_lo to k_hi) {
-    let a_flat : int = mat_A_idx(i, k, g.K_eff, g.LMUL, g.lambda, g.epr_A);
-    let b_flat : int = mat_B_idx(k, j, g.K_eff, g.LMUL, g.lambda, g.epr_A);
+    let a_flat : int = mat_A_idx(i, k, g.K_eff, g.LMUL, g.lambda, g.W, g.epr_A);
+    let b_flat : int = mat_B_idx(k, j, g.K_eff, g.LMUL, g.lambda, g.W, g.epr_A);
     let a_val  : int = if signed_A
                        then signed(read_single_element(g.EEW_A, a_flat, vs1))
                        else unsigned(read_single_element(g.EEW_A, a_flat, vs1));
