@@ -2781,6 +2781,7 @@ multiply-accumulate instruction; C load/store uses the physical C tile
 layout and, for partial column blocks, a column mask.
 ====
 
+[#integrated-matrix-m16-c-load-store,reftext="C tile load/store for EMUL_C = 16"]
 [NOTE]
 ====
 When `EMUL_C = 16`, `LMUL=16` is not a legal `vtype` setting, so there is
@@ -2818,6 +2819,10 @@ which use no mask, are expressible at either placement.)
 
 The following pseudocode implements C ← C + A × B for single-precision
 floating-point data, tiled over all three matrix dimensions.
+For clarity, this example covers configurations with
+`EMUL_C` ∈ {`1`, `2`, `4`, `8`}. The legal `EMUL_C = 16` case uses an
+`m16` accumulator and requires the separate two-half C load/store sequence
+described in <<integrated-matrix-m16-c-load-store>>.
 The configuration uses SEW=32, LMUL=1, and `LAMBDA`=4, giving K_eff = 4 and
 M_tile = VLEN/128.
 Matrices A and C are stored row-major; Matrix B is stored column-major, allowing its columns
@@ -2830,6 +2835,7 @@ B~tile~^T^.
 //                                 × B_matrix (K×N, column-major, stride ldb)
 //
 // Pre-condition: vtype can be configured for SEW=32, LMUL=1, lambda=4.
+// Pre-condition: EMUL_C is one of 1, 2, 4, or 8.
 // Pre-condition: K is a multiple of K_eff (= lambda × LMUL = 4).
 // For simplicity, this example assumes M is a multiple of M_tile.
 
@@ -2839,6 +2845,9 @@ const int K_eff      = lambda * LMUL_AB;
 const int M_tile     = VLEN / (32 * lambda);
 const int N_tile_max = M_tile;
 const int EMUL_C     = M_tile / lambda;
+
+assert(EMUL_C == 1 || EMUL_C == 2 ||
+       EMUL_C == 4 || EMUL_C == 8);
 
 // The A tile is loaded at the C accumulator SEW, so its VL is counted
 // in SEW-wide storage elements and is independent of the widening
@@ -2934,6 +2943,12 @@ Key observations:
 * For partial column blocks where `N_tile < N_tile_max`, C load/store uses
   a mask that enables only physical C tile elements whose column index is
   less than `N_tile`. Masked-off C elements do not access memory.
+
+* This simplified example uses `v8` as the C accumulator base and therefore
+  covers `EMUL_C` values through 8. For `EMUL_C = 16`, the `m16` accumulator
+  group shall be placed at `v16`–`v31` when partial-column masks are
+  required, and its C loads and stores are performed as two `LMUL=8` halves,
+  as described in <<integrated-matrix-m16-c-load-store>>.
 
 * The A and B tile loads must be performed with the target `SEW`, which is
   the element width of the C accumulator tile.
