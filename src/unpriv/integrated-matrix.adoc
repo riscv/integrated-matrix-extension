@@ -357,10 +357,6 @@ A and B tiles have elements of width `SEW`÷`W`; the accumulator C has elements 
 When operating on integer data types, the signedness of each input is controlled independently by `altfmt_A` and `altfmt_B` (0 = signed, 1 = unsigned; see <<integrated-matrix-altfmt-inputs>>); the accumulator C is always signed.
 Integer accumulation wraps modulo 2^`SEW`^.
 
-A and B tiles have elements of width `SEW`÷`W`; the accumulator C has elements of width `SEW` (see <<tbl-extensions>>).
-When operating on integer data types, the signedness of each input is controlled independently by `altfmt_A` and `altfmt_B` (0 = signed, 1 = unsigned; see <<integrated-matrix-altfmt-inputs>>); the accumulator C is always signed.
-Integer accumulation wraps modulo 2^`SEW`^.
-
 The Zvvm family uses the widening factor `W` to describe both the arithmetic widening ratio
 and the corresponding packing of input elements within each `SEW`-wide element group.
 The elements of accumulator `C` always have width `SEW` and corresponding element group size (EGS) of 1.
