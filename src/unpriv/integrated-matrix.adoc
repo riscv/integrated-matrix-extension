@@ -3828,17 +3828,37 @@ void         __riscv_vmtts_v_i32m1_L4 (int32_t *base, size_t ld, vint32m1_t vs3,
 --
 
 Tile load and store intrinsics support an optional mask through the
-`_m` suffix.  The masked load takes a leading `vbool{N}_t mask` argument;
+`_m` suffix. The masked load takes a leading `vbool{N}_t mask` argument;
 the masked store takes a leading `vbool{N}_t mask` followed by the usual
-arguments.  The mask bit width matches the data type's element width
-(e.g., `vbool8_t` for `i8m1`, `vbool32_t` for `i32m1`, `vbool16_t` for
-`bf16m1`), following the standard V-extension convention.
+arguments.
+
+The mask type follows the standard RISC-V Vector Intrinsics mask-ratio
+rule. For a tile load/store whose storage element width (instruction
+`SEW`) is `S` and whose tile operand uses `LMUL`, the mask-ratio parameter
+is
+
+    N = S / LMUL
+
+and the mask argument type is `vbool{N}_t`. Here `N` denotes the mask
+ratio, not the width of a mask element; every mask element is one bit.
+For an unqualified natural-storage intrinsic, `S` is the natural storage
+width of the logical type. In particular, unqualified OFP4 and Int4
+intrinsics use `S=8`. For an `_as_e{S}` intrinsic, `S` is the storage
+width named by that qualifier.
+
+Each mask bit controls one `S`-bit storage element. If multiple logical
+narrow elements are packed within one storage element, the mask bit
+controls the complete storage element and therefore all logical elements
+packed within it.
 
 [source,c]
 --
 /* vmtl.v masked: */
 vint8m1_t  __riscv_vmtl_v_i8m1_m  (vbool8_t mask,  const int8_t  *base, size_t ld, size_t vl);
 vint32m1_t __riscv_vmtl_v_i32m1_m (vbool32_t mask, const int32_t *base, size_t ld, size_t vl);
+
+/* SEW=32, LMUL=2: mask ratio is 32/2 = 16. */
+vint32m2_t __riscv_vmtl_v_i32m2_m (vbool16_t mask, const int32_t *base, size_t ld, size_t vl);
 /* vmts.v masked: */
 void __riscv_vmts_v_i8m1_m  (vbool8_t mask,  int8_t  *base, size_t ld, vint8m1_t  vs3, size_t vl);
 void __riscv_vmts_v_i32m1_m (vbool32_t mask, int32_t *base, size_t ld, vint32m1_t vs3, size_t vl);
@@ -3859,14 +3879,21 @@ vint8m1_t __riscv_vmtl_v_i8m1_L4_m (vbool8_t mask, const int8_t *base, size_t ld
 void      __riscv_vmts_v_i8m1_L4_m (vbool8_t mask, int8_t *base, size_t ld, vint8m1_t vs3, size_t vl);
 --
 
-For storage-width-qualified tile load/store intrinsics, the mask type
-is determined by the storage width `S` and `LMUL`, not by the logical
-narrow element type. For example:
+For example, an FP16 logical tile loaded from 32-bit storage uses the
+mask ratio derived from `S=32`, rather than from the 16-bit logical
+element width:
 
 [source,c]
 ----
+/* FP16 logical elements in SEW=32 storage, LMUL=1:
+   mask ratio is 32/1 = 32. */
 vfloat16m1_t __riscv_vmtl_v_f16m1_as_e32_m(vbool32_t mask, const uint32_t *base, size_t ld, size_t vl);
 
+/* FP16 logical elements in SEW=32 storage, LMUL=2:
+   mask ratio is 32/2 = 16. */
+vfloat16m2_t __riscv_vmtl_v_f16m2_as_e32_m(vbool16_t mask, const uint32_t *base, size_t ld, size_t vl);
+
+/* An immediate LAMBDA qualifier does not change the mask ratio. */
 vfloat16m1_t __riscv_vmtl_v_f16m1_as_e32_L4_m(vbool32_t mask, const uint32_t *base, size_t ld, size_t vl);
 ----
 
