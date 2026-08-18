@@ -3303,7 +3303,7 @@ software:
 [source,c]
 --
 size_t __riscv_ime_vlen   (void);   /* VLEN in bits */
-size_t __riscv_ime_lambda (void);   /* current selected lambda */
+size_t __riscv_ime_lambda (void);   /* current selected LAMBDA */
 --
 
 `__riscv_ime_vlen()` returns the architectural VLEN (in bits).  When VLEN is
@@ -3312,15 +3312,27 @@ Clang — the call folds to a load-immediate; otherwise the compiler emits
 `csrr vlenb` followed by a left-shift by 3.
 
 `__riscv_ime_lambda()` is a pure query of the currently selected
-lambda value. It reads `vtype.lambda[2:0]`, decodes the field, and
-returns the resulting lambda value without modifying `vtype`, `vl`, or
-any vector register.
+`LAMBDA` value. It reads `vtype.lambda[2:0]`, decodes the field, and
+returns the resulting value without modifying `vtype`, `vl`, or any
+vector register.
 
-In a legal, configured `vtype` the returned value is always a nonzero
-lambda that is valid for the current (`VLEN`, `SEW`) configuration,
-because the supported set is non-empty. A return value of zero indicates
-only an as-yet-unconfigured `vtype` (no configuration instruction has yet
-selected a lambda).
+When `vtype.vill` = 0 and the current (`VLEN`, `SEW`) configuration is
+in the IME-legal domain, the returned value is a supported nonzero
+`LAMBDA`.
+
+A return value of zero means that no nonzero `LAMBDA` is currently
+selected. An IME instruction that requires a dynamic `LAMBDA` raises an
+illegal-instruction exception while no nonzero value is selected. A zero
+result can occur in an unconfigured state, when `vtype.vill` = 1, or when
+the current (`VLEN`, `SEW`) configuration is outside the IME-legal domain.
+The intrinsic does not distinguish among these cases.
+
+After establishing a valid vector configuration, software that needs to
+establish a selected `LAMBDA` may call `__riscv_vsetlambda(0)` and inspect
+its return value. Within the IME-legal domain, that operation preserves a
+valid current value or selects a supported nonzero value. Outside that
+domain, it returns zero. The operation does not repair `vtype.vill` = 1;
+software must first establish a valid `vtype`.
 
 Because an implementation may support multiple lambda values for the
 same `VLEN` and `SEW`, the result cannot in general be derived from
