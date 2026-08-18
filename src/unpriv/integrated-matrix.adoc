@@ -3343,10 +3343,11 @@ Otherwise, the compiler shall emit a read of `vtype` or an equivalent
 implementation-defined sequence that returns the current selected
 lambda.
 
-Software that needs to enumerate all supported lambda values may use
-`__riscv_vsetlambda` to request each nonzero candidate and inspect the
-returned value. Because those requests may change the selected lambda,
-software should restore its desired value after enumeration.
+Software that needs to enumerate all supported `LAMBDA` values may call
+`__riscv_vsetlambda` with each valid nonzero candidate in
+{`1`, `2`, `4`, `8`, `16`, `32`, `64`} and inspect the returned value.
+Because those requests may change the selected `LAMBDA`, software should
+restore its desired value after enumeration.
 
 ===== Establishing lambda from C: `__riscv_vsetlambda`
 
@@ -3355,13 +3356,30 @@ software should restore its desired value after enumeration.
 size_t __riscv_vsetlambda(size_t requested_lambda);
 ----
 
-`__riscv_vsetlambda` is the C-level primitive for submitting a lambda
-write request and returning the lambda value established by that request.
+`__riscv_vsetlambda` is the C-level primitive for submitting a `LAMBDA`
+write request and returning the selected value established by that request.
 It preserves all other `vtype` fields and preserves `vl`.
 
-If `requested_lambda` is a positive power of two in
-{1, 2, 4, 8, 16, 32, 64}, the intrinsic requests the corresponding
-nonzero lambda value.
+The `requested_lambda` argument denotes a semantic `LAMBDA` value, not the
+raw three-bit `vtype.lambda[2:0]` encoding. Its valid domain is
+{`0`, `1`, `2`, `4`, `8`, `16`, `32`, `64`}. Every possible three-bit
+architectural `lambda[2:0]` bit pattern is defined; an out-of-domain value
+can arise only at the C intrinsic interface.
+
+A compiler shall diagnose an out-of-domain argument when its value is known
+at compile time. If an out-of-domain value is supplied at runtime, the C
+program has undefined behavior; this intrinsic specification provides no
+guarantee about the request submitted, the returned value, or the resulting
+architectural state.
+
+An out-of-domain argument is distinct from a valid nonzero request whose
+encoded value is unsupported for the current (`VLEN`, `SEW`) configuration.
+A valid but unsupported request follows the WARL canonicalization rules
+below.
+
+If `requested_lambda` is a nonzero member of
+{`1`, `2`, `4`, `8`, `16`, `32`, `64`}, the intrinsic requests the
+corresponding nonzero `LAMBDA` value.
 
 If the requested value is supported for the current (`VLEN`, `SEW`)
 configuration, that value is established.
@@ -3430,16 +3448,19 @@ A compiler should model the lambda query and write intrinsics as follows:
   replaced by a supported nonzero value in the IME-legal domain, or may
   remain zero outside that domain.
 
-| `__riscv_vsetlambda` with a compile-time nonzero argument
+| `__riscv_vsetlambda` with a compile-time valid nonzero argument
 | `lambda`
 | `SEW`
-| Nonzero lambda request followed by WARL canonicalization.
+| Encodable nonzero `LAMBDA` request followed by WARL canonicalization.
+  A compile-time argument outside the intrinsic domain shall be diagnosed.
 
 | `__riscv_vsetlambda` with a runtime argument
 | `lambda` (may-DEF)
 | `lambda`, `SEW`
-| The compiler cannot in general determine whether the argument is zero.
+| The caller shall supply a value in the intrinsic domain. The compiler
+  cannot in general determine whether a valid runtime argument is zero.
   Conservative ordering should treat the operation as a lambda definition.
+  A runtime value outside the intrinsic domain has undefined behavior.
 |===
 
 A `vsetvli` or `vsetivli` that may change `SEW` should be modeled as a
