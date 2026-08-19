@@ -14,16 +14,29 @@ form C ← A × B^T^ + C, using matrix tiles held in vector register groups.
 For orientation, `VLEN` is the vector-register width in bits, `SEW` is
 the element width for output C, `LMUL` is the vector register-group
 multiplier for the A and B input operands, `W` is the per-instruction
-widening factor, and `LAMBDA` is the IM tile-layout parameter introduced
-below.
-`EMUL_C` is the register-group multiplier for the output C and is computed as
-`EMUL_C` = (`VLEN`/`SEW`) ÷ `LAMBDA`^2^.
-A, B, and C are row-major matrix tiles.
-A and B are the input tiles, both of shape `M` × `K_eff`. C, of shape `M` × `M`, is the accumulator (output) tile.
-`M` = `VLEN` ÷ (`SEW` × `LAMBDA`) and `K_eff` = `LAMBDA` × `W` × `LMUL`.
-The detailed tile geometry, including the roles of `VLEN`, `SEW`,
-`LAMBDA`, `W`, `LMUL`, `K_eff`, and `EMUL_C`, is defined in
-<<_matrix_tile_multiplication_geometry>>.
+widening factor, `VL` is the current vector length, and `LAMBDA` is the
+IM tile-layout parameter introduced below.
+
+`EMUL_C` is the register-group multiplier for output C and is computed as:
+
+    EMUL_C = (VLEN/SEW) / LAMBDA²
+
+A, B, and C use row-major register layouts. A has shape `M` × `K_eff`.
+The active B tile has shape `N` × `K_eff`, so its transposed view B^T^
+has shape `K_eff` × `N`. The C register group has a fixed physical shape
+`M` × `M`, while each instruction updates an active `M` × `N` sub-tile.
+
+The dimensions are:
+
+    M     = VLEN / (SEW × LAMBDA)
+    K_eff = LAMBDA × W × LMUL
+    N     = VL / (LAMBDA × LMUL), with 0 ≤ N ≤ M
+
+At the maximum applicable `VL`, `N = M`; B then has shape
+`M` × `K_eff`, and all columns of the physical C tile are active.
+
+The complete physical and active tile geometry is defined in
+<<integrated-matrix-active-tile-geometry>>.
 
 The extensions are designed to support implementations spanning a wide range of microarchitectures and performance points: from small, embedded in-order cores targeting low-power and area-constrained applications, to large, high-performance out-of-order implementations targeting HPC and AI workloads.
 A key architectural goal is that the same executable can run correctly
@@ -67,13 +80,21 @@ beyond the normative text they reference.
 ==== Matrix tile multiplication geometry
 
 A _matrix tile_ is a two-dimensional rectangular section of a matrix.
-The goal of the IM-extension is to support the computation of C ← A × B^T^ + C, where A, B, and C are matrix tiles.
-In the computation above, A and B are _input tiles_ and C is called the _accumulator tile_.
-In the IM extension, input and accumulator tiles are stored in vector register groups.
-For any given C ← A × B^T^ + C computation, both A and B input tiles have a common rectangular shape `M` × `K`.
-(We explain below how the `M` and `K` parameters are defined.)
-From the rules of matrix multiplication, the shape of C must be `M` × `M`.
-This means that, in general, the sizes of the input and accumulator vector register groups can be different.
+The goal of the IM extension is to support the computation
+C ← A × B^T^ + C, where A, B, and C are matrix tiles.
+In this computation, A and B are _input tiles_ and C is the
+_accumulator tile_. Input and accumulator tiles are stored in vector
+register groups.
+
+For an active computation, A has shape `M` × `K`, B has shape
+`N` × `K`, B^T^ has shape `K` × `N`, and the active portion of C has
+shape `M` × `N`. The C register group has a fixed physical shape
+`M` × `M`, of which the first `N` columns are active. The current `VL`
+selects `N`, with `0 ≤ N ≤ M`.
+
+The geometry examples in this subsection illustrate the full-column case
+`N = M`. In that case, both A and B have shape `M` × `K`, and all
+columns of the square physical C tile participate.
 
 The IM extension grants implementations a certain degree of flexibility in selecting the shape of tiles.
 Given a vector length `VLEN` (also an implementationn choice) and a selected element width `SEW`, the number of elements in a single vector registers is (`VLEN`/`SEW`).
@@ -92,7 +113,7 @@ The three possible configurations in this case are shown in <<ime-single-vec-reg
 .Geometry of matrix tiles fitting in a single vector register for `VLEN` = 512 and `SEW` = 32. (In general, for (`VLEN`/`SEW`) = 16.) There are three legal choices for the implementation parameter `LAMBDA`, and corresponding `M`. (a) `LAMBDA` = 1, `M` = 16. (b) `LAMBDA` = 2, `M` = 8. (c) `LAMBDA` = 4, `M` = 4.
 image::png/ime-single-vec-reg-geometry.png[width=50%, align=center, alt="Diagram of tile geometry for a single vector register."]
 
-Since the `M` × `K` shape of the input tiles A and B that fit in a single vector register depends on the parameter `LAMBDA`, so does the shape `M` × `M` of the accumulator tile C.
+In the full-column case, the A and B tiles that fit in a single vector register have shape `M` × `K`, while the fixed physical C tile has shape `M` × `M`; these shapes depend on `LAMBDA`.
 Correspondingly, the multiplicity of the vector register group holding tile C, `EMUL_C`, is also a function of `LAMBDA`, `EMUL_C` = `M` ÷ `LAMBDA` = (`VLEN`/`SEW`) ÷ `LAMBDA`^2^.
 The three possible configurations for `VLEN` = 512 and `SEW` = 32 are shown in <<ime-emulc-examples>>.
 
@@ -462,15 +483,30 @@ ordered sequence of `LMUL=1` steps, while preserving the architectural
 result defined by this specification.
 ====
 
-<<tile-dimensions>> shows how the tile dimensions follow from the widening, `LAMBDA`, and LMUL settings.
+<<tile-dimensions>> shows how the tile dimensions follow from `VLEN`,
+`SEW`, `VL`, `LAMBDA`, `W`, and `LMUL`.
 
 [#tile-dimensions]
-.Tile dimensions K~eff~, M, and N derived from the settings.
-[cols="1,1,1", options="header"]
+.Tile dimensions derived from the vector configuration
+[cols="1,1,2", options="header"]
 |===
-|Parameter  | Value                | description
-|K~eff~     | `LAMBDA` × W × LMUL         | number of input elements along the inner (K) dimension
-|M = N      | (VLEN ÷ SEW) ÷ `LAMBDA`     | rows = columns of the square accumulator tile
+|Parameter |Value |Description
+
+|K~eff~
+|`LAMBDA` × `W` × `LMUL`
+|Logical input elements along the shared K dimension.
+
+|M
+|(`VLEN` / `SEW`) / `LAMBDA`
+|Rows of A and of the physical and active C tiles.
+
+|N~max~
+|M
+|Maximum B rows and physical C columns.
+
+|N
+|`VL` / (`LAMBDA` × `LMUL`)
+|Active B rows and active B^T^ and C columns; `0 ≤ N ≤ N~max~`.
 |===
 
 ==== Matrix tile multiplication computation
@@ -2603,6 +2639,7 @@ tiles.
 
 <<<
 
+[#integrated-matrix-active-tile-geometry]
 ==== Tile geometry for multiply-accumulate
 
 The tile dimensions are fully determined by the current vector configuration:
