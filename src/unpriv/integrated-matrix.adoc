@@ -3810,10 +3810,25 @@ elements.
 [#integrated-matrix-immediate-lambda-mask-qualifiers,reftext="Immediate-lambda and mask qualifiers"]
 *Immediate-lambda and mask qualifiers*
 
-When an immediate lambda override is required, a `_L{N}` variant encodes the
-lambda value (N ∈ {1, 2, 4, 8, 16, 32, 64}) directly in the intrinsic name.
-Because the lambda value maps to a 3-bit instruction-immediate field, the
-compiler can statically verify legality; no runtime argument is needed.
+When an immediate `LAMBDA` override is required, an `_L{N}` variant
+encodes the requested value, where `N` ∈ {`1`, `2`, `4`, `8`, `16`, `32`,
+`64`}, directly in the intrinsic name. The compiler can statically verify
+that `N` is an encodable nonzero `LAMBDA` value and can place its
+corresponding three-bit encoding in the instruction-immediate field; no
+runtime `LAMBDA` argument is required.
+
+Encodability, architectural permissibility, and implementation support are
+distinct. An encodable `N` may be architecturally impermissible for the
+execution-time (`VLEN`, `SEW`) geometry, and an architecturally permissible
+`N` may still be unsupported by a particular implementation. The immediate
+requests the exact value `N` and is not WARL-canonicalized. If `N` is not
+supported for the execution-time (`VLEN`, `SEW`) configuration, the tile
+load/store instruction raises an illegal-instruction exception as specified
+in <<integrated-matrix-tile-ls-legality>>.
+
+A compiler may diagnose an `_L{N}` intrinsic when the selected compilation
+target proves that `N` is unsupported. Such a diagnostic is not required
+when target support cannot be determined statically.
 
 [source,c]
 --
