@@ -1909,12 +1909,12 @@ When microscaling is active (`vm=0`), each output element is computed as:
 [%unbreakable]
 ====
 [.text-center]
-C~i,j~ ← C~i,j~ + `SUM`~s=0~^L−1^ (`scale_A`~i,s~ × `scale_B`~j,s~ × (`SUM`~k∈block(s)~ A~tile~[i,k] × B~tile~^T^[k,j]))
+C~i,j~ ← C~i,j~ + `SUM`~s=0~^S_blocks−1^ (`scale_A`~i,s~ × `scale_B`~j,s~ × (`SUM`~k∈block(s)~ A~tile~[i,k] × B~tile~^T^[k,j]))
 ====
 
-where L = ⌈K_eff / block_size⌉ is the number of scale blocks per
-row/column, and block(_s_) covers elements
-[_s_ × block_size, min((_s_+1) × block_size, K_eff) − 1].
+where `S_blocks` = ⌈K_eff / block_size⌉ is the number of scale blocks
+per row or column, and block(_s_) covers elements
+[_s_ × block_size, min((_s_ + 1) × block_size, K_eff) − 1].
 
 `scale_A`~i,s~ and `scale_B`~j,s~ are decoded from the
 per-block scale fields in `v0` according to the scale format associated
@@ -2106,8 +2106,12 @@ For E8M0: _sw_ = 8, _pw_ = 16.
 
 The row stride in `v0` is R = `LAMBDA` × SEW ÷ _pw_ in units of _pw_-bit elements (see <<ime-block-scale-v0>>).
 
-For each tile index _m_, S = ⌈K_eff / block_size⌉ elements are active.  Element
-index _p_ = _m_ × R + _s_ addresses the scale pair for block _s_.
+For each tile index _m_, the first `S_blocks` elements are active, where
+
+    S_blocks = ⌈K_eff / block_size⌉.
+
+Element index _p_ = _m_ × R + _s_ addresses the scale pair for block
+_s_.
 
 For `scale_A`, index _m_ identifies row _m_ of
 A~tile~. For `scale_B`, index _m_ identifies column
