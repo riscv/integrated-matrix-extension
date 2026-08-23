@@ -96,21 +96,36 @@ The geometry examples in this subsection illustrate the full-column case
 `N = M`. In that case, both A and B have shape `M` × `K`, and all
 columns of the square physical C tile participate.
 
-The IM extension grants implementations a certain degree of flexibility in selecting the shape of tiles.
-Given a vector length `VLEN` (also an implementationn choice) and a selected element width `SEW`, the number of elements in a single vector registers is (`VLEN`/`SEW`).
-To define the shape of a tile contained in a single vector registers, we introduce an additional implementation-choice parameter `LAMBDA` that is the width of such tile in elements of `SEW`.
-The height of the tile is then `M` = (`VLEN`/`SEW`) ÷ `LAMBDA`.
+For some (`VLEN`, `SEW`) configurations, the architecture permits
+multiple tile geometries. The architecture defines the set of
+architecturally permissible nonzero `LAMBDA` values, and each
+implementation defines a supported subset of those values. Within the
+IME-legal configuration domain, that supported subset shall be nonempty.
+
+The current `LAMBDA` is a dynamically selected tile-layout parameter
+drawn from the implementation-supported set. Software may request a value
+through the architectural configuration mechanisms, subject to the WARL
+selection rules defined in <<integrated-matrix-lambda>>.
+
+Given the implementation-defined vector-register width `VLEN` and a
+selected element width `SEW`, a single vector register contains
+`VLEN`/`SEW` elements. `LAMBDA` specifies the width, in `SEW`-bit
+elements, of each row fragment held in one vector register. The tile
+height is then
+
+    M = (`VLEN`/`SEW`) ÷ `LAMBDA`.
+
 The IM extension imposes two more restrictions on `LAMBDA`. (An additional third restriction will be introduced later.)
 First, `LAMBDA`, and consequently `M`, must be a power of 2 ≥ 1.
 Second, we must have `M` ≥ `LAMBDA` or, equivalently, `LAMBDA` ≤ (`VLEN`/`SEW`)^½^.
 
 As an example of the implication of the rules for `LAMBDA`, let us consider the case `VLEN` = 512 and `SEW` = 32.
-In this case, (`VLEN`/`SEW`) = 16 and, therefore there are only three possible choices for `LAMBDA`: 1, 2, or 4.
+In this case, (`VLEN`/`SEW`) = 16 and, therefore, the architecturally permissible values of `LAMBDA` are 1, 2, and 4.
 The corresponding values for `M` are 16, 8, and 4, respectively.
 The three possible configurations in this case are shown in <<ime-single-vec-reg-geometry>>.
 
 [#ime-single-vec-reg-geometry]
-.Geometry of matrix tiles fitting in a single vector register for `VLEN` = 512 and `SEW` = 32. (In general, for (`VLEN`/`SEW`) = 16.) There are three legal choices for the implementation parameter `LAMBDA`, and corresponding `M`. (a) `LAMBDA` = 1, `M` = 16. (b) `LAMBDA` = 2, `M` = 8. (c) `LAMBDA` = 4, `M` = 4.
+.Geometry of matrix tiles fitting in a single vector register for `VLEN` = 512 and `SEW` = 32. (In general, for (`VLEN`/`SEW`) = 16.) There are three architecturally permissible values of `LAMBDA`, with corresponding values of `M`. (a) `LAMBDA` = 1, `M` = 16. (b) `LAMBDA` = 2, `M` = 8. (c) `LAMBDA` = 4, `M` = 4.
 image::png/ime-single-vec-reg-geometry.png[width=50%, align=center, alt="Diagram of tile geometry for a single vector register."]
 
 In the full-column case, the A and B tiles that fit in a single vector register have shape `M` × `K`, while the fixed physical C tile has shape `M` × `M`; these shapes depend on `LAMBDA`.
@@ -118,7 +133,7 @@ Correspondingly, the multiplicity of the vector register group holding tile C, `
 The three possible configurations for `VLEN` = 512 and `SEW` = 32 are shown in <<ime-emulc-examples>>.
 
 [#ime-emulc-examples]
-.Geometry of the computation of C ← A × B^T^ + C for `VLEN` = 512 and `SEW` = 32. (In general, for (`VLEN`/`SEW`) = 16.) There are three legal choices for the implementation parameter `LAMBDA`, which impacts the shapes of the A, B, and C tiles, including the multiplicity `EMUL_C` of the vector register group holding the accumulator tile C. (a) `LAMBDA` = 1, `M` = 16, `EMUL_C` = 16. (b) `LAMBDA` = 2, `M` = 8, `EMUL_C` = 4. (c) `LAMBDA` = 4, `M` = 4, `EMUL_C` = 1.
+.Geometry of the computation of C ← A × B^T^ + C for `VLEN` = 512 and `SEW` = 32. (In general, for (`VLEN`/`SEW`) = 16.) There are three architecturally permissible values of `LAMBDA`; each value affects the shapes of the A, B, and C tiles, including the multiplicity `EMUL_C` of the vector register group holding the accumulator tile C. (a) `LAMBDA` = 1, `M` = 16, `EMUL_C` = 16. (b) `LAMBDA` = 2, `M` = 8, `EMUL_C` = 4. (c) `LAMBDA` = 4, `M` = 4, `EMUL_C` = 1.
 image::png/ime-emulc-examples.png[width=80%, align=center, alt="Diagram of C ← A × B^T^ + C computation for different choices of `LAMBDA`."]
 
 We now introduce the third restriction on `LAMBDA`.
@@ -126,27 +141,27 @@ This (indirect) restriction comes from the 32 vector registers being used to sto
 To ensure enough space for the input tiles A and B, we force `EMUL_C` ∈ {1, 2, 4, 8, 16}.
 This requires a minimum values of `LAMBDA` when (`VLEN`/`SEW`) is large.
 As an example, let us now consider the case  `VLEN` = 1024 and `SEW` = 32, leading to (`VLEN`/`SEW`) = 32.
-The two legal choices for `LAMBDA` (2 and 4), and the corresponding values for `M` (16 and 8), are illustrated in <<ime-vec-reg-geometry-L32>>.
+The two architecturally permissible values of `LAMBDA` (2 and 4), and the corresponding values of `M` (16 and 8), are illustrated in <<ime-vec-reg-geometry-L32>>.
 A choice of `LAMBDA` = 1 would result in `EMUL_C` = 32, leaving no space for the A and B tiles.
 The two possible configurations for `VLEN` = 1024 and `SEW` = 32 are shown in <<ime-emulc-examples-L32>>.
 
 [#ime-vec-reg-geometry-L32]
-.Geometry of matrix tiles fitting in a single vector register for `VLEN` = 1024 and `SEW` = 32. (In general, for (`VLEN`/`SEW`) = 32.) There are two legal choices for the implementation parameter `LAMBDA`, and corresponding `M`. (a) `LAMBDA` = 2, `M` = 16. (b) `LAMBDA` = 4, `M` = 8.
+.Geometry of matrix tiles fitting in a single vector register for `VLEN` = 1024 and `SEW` = 32. (In general, for (`VLEN`/`SEW`) = 32.) There are two architecturally permissible values of `LAMBDA`, with corresponding values of `M`. (a) `LAMBDA` = 2, `M` = 16. (b) `LAMBDA` = 4, `M` = 8.
 image::png/ime-vec-reg-geometry-L32.png[width=50%, align=center, alt="Diagram of tile geometry for a single vector register."]
 
 [#ime-emulc-examples-L32]
-.Geometry of the computation of C ← A × B^T^ + C for `VLEN` = 1024 and `SEW` = 32. (In general, for (`VLEN`/`SEW`) = 32.) There are two legal choices for the implementation parameter `LAMBDA`, which impacts the shapes of the A, B, and C tiles, including the multiplicity `EMUL_C` of the vector register group holding the accumulator tile C. (a) `LAMBDA` = 2, `M` = 16, `EMUL_C` = 8. (b) `LAMBDA` = 4, `M` = 8, `EMUL_C` = 2.
+.Geometry of the computation of C ← A × B^T^ + C for `VLEN` = 1024 and `SEW` = 32. (In general, for (`VLEN`/`SEW`) = 32.) There are two architecturally permissible values of `LAMBDA`; each value affects the shapes of the A, B, and C tiles, including the multiplicity `EMUL_C` of the vector register group holding the accumulator tile C. (a) `LAMBDA` = 2, `M` = 16, `EMUL_C` = 8. (b) `LAMBDA` = 4, `M` = 8, `EMUL_C` = 2.
 image::png/ime-emulc-examples-L32.png[width=80%, align=center, alt="Diagram of C ← A × B^T^ + C computation for different choices of `LAMBDA`."]
 
-In general, if `L` = (`VLEN`/`SEW`) is a perfect square (an even power of 2), then the valid choices for `LAMBDA` are {`L`^½^, `L`^½^ ÷ 2, `L`^½^ ÷ 4}.
-If `L` = (`VLEN`/`SEW`) is two times a perfect square (an odd power of 2), then the valid choices for `LAMBDA` are {(`L` ÷ 2)^½^, (`L` ÷ 2)^½^ ÷ 2}.
-The legal choices of `LAMBDA`, and corresponding values of `EMUL_C`, for all possible values of (`VLEN`/`SEW`) are shown in <<ime-emulc-table>>.
+In general, if `L` = (`VLEN`/`SEW`) is a perfect square (an even power of 2), then the architecturally permissible values of `LAMBDA` are {`L`^½^, `L`^½^ ÷ 2, `L`^½^ ÷ 4}.
+If `L` = (`VLEN`/`SEW`) is two times a perfect square (an odd power of 2), then the architecturally permissible values of `LAMBDA` are {(`L` ÷ 2)^½^, (`L` ÷ 2)^½^ ÷ 2}.
+The architecturally permissible values of `LAMBDA`, and corresponding values of `EMUL_C`, for all possible values of (`VLEN`/`SEW`) are shown in <<ime-emulc-table>>.
 
 [#ime-emulc-table]
-.Table of legal implementation choices of `LAMBDA` for different values of `L` = (`VLEN`/`SEW`). The entries in the table show the resulting multiplicity `EMUL_C` of the vector register group holding tile C.
+.Architecturally permissible values of `LAMBDA` for different values of `L` = (`VLEN`/`SEW`). Each entry shows the resulting multiplicity `EMUL_C` of the vector register group holding tile C.
 image::png/ime-emulc-table.png[width=80%, align=center, alt="Table of choices of `LAMBDA` as a function of (`VLEN`/`SEW`)."]
 
-We see in <<ime-emulc-table>> that the majority of cases support either 2 or 3 choices for `LAMBDA`.
+We see in <<ime-emulc-table>> that the majority of cases permit either two or three `LAMBDA` values.
 Furthermore, in those cases the corresponding values for `EMUL_C` are either `EMUL_C` ∈ {1, 4, 16} or `EMUL_C` ∈ {2, 8}.
 Highly optimized versions of a matrix-multiply kernel are specialized for a particular value of `EMUL_C`, as that dictates the multiplicity of a vector register group holding the C tile in a C ← A × B^T^ + C computation,
 but are otherwise portable across specific choices of `VLEN` and `LAMBDA`.
@@ -325,9 +340,24 @@ Finally, in the `EMUL_C=1` specialization, the output-register space is
 organized int a 4-by-4 array of single-register accumulator tiles.
 Four A input tiles and four B input tiles are loaded in each iteration, and 16 matrix multiply-accumulate instructions are used to update the result.
 
-==== Implementation choice of the tile geometry (`LAMBDA` and `EMUL_C`)
+==== Implementation support choices for tile geometry (`LAMBDA` and `EMUL_C`)
 
-The legality rules above leave the implementer with a choice of `LAMBDA` (equivalently, of `M` and `EMUL_C`) for a given `VLEN` and `SEW`. This choice is not free: it fixes the shape of the C-panel and therefore trades off arithmetic throughput, silicon area and power, and memory-system efficiency. (At least under the reasonable constraint of considering each individual computational instructions.) We summarize the forces at work using the three configurations of <<ime-emulc-examples>> (`VLEN` = 512, `SEW` = 32, so `L` = `VLEN`/`SEW` = 16).
+For a given (`VLEN`, `SEW`) configuration, the architectural legality
+rules may permit multiple `LAMBDA` values and corresponding tile
+geometries. An implementation chooses which of those permissible values
+it supports, subject to the requirement that its supported set be nonempty
+within the IME-legal domain.
+
+The choice of supported geometries is not free: each supported `LAMBDA`
+fixes the associated values of `M` and `EMUL_C` and therefore represents
+a particular tradeoff among arithmetic throughput, silicon area and
+power, and memory-system efficiency. Software establishes a current
+selected `LAMBDA` from the supported set through the architectural
+configuration mechanisms.
+
+We summarize the forces at work using the three configurations of
+<<ime-emulc-examples>> (`VLEN` = 512, `SEW` = 32, so
+`L` = `VLEN`/`SEW` = 16).
 
 *Compute intensity versus memory bandwidth.* Each update of the accumulator register group by a computational instruction (in linear algebra terms, a _rank_-`LAMBDA` update) loads the A and B operands — `M`×`LAMBDA` elements each — and performs `M`×`M`x`LAMBDA` multiply-accumulates. The compute intensity, in MACs per loaded element, is therefore
 
@@ -346,10 +376,10 @@ For the microkernel in <<ime-portable-microkernel>>, the compute intensity is th
 
     N_MAC = M×M×LAMBDA = L² ÷ LAMBDA.
 
-<<ime-emulc-examples>> (a) is a rank-1 outer-product engine of up to 16 × 16 = 256 MACs; <<ime-emulc-examples>> (c) is a rank-4 engine of 4 × 4 × 4 = 64 MACs. Both `N_MAC` and `I` increase as `LAMBDA` decreases, so a performance-only argument always favours the smallest legal `LAMBDA` — the largest `EMUL_C` in <<ime-emulc-table>>. Area and power push the other way: the 256-MAC array of (a) is four times the arithmetic hardware of (c). An implementation with a limited area or power budget therefore deliberately selects a larger `LAMBDA`, accepting lower compute intensity and lower peak throughput in exchange for a smaller multiplier. Subject to that budget, the highest-performance choice for a given `VLEN` and `SEW` is the one with the largest `EMUL_C` permitted by <<ime-emulc-table>>.
+<<ime-emulc-examples>> (a) is a rank-1 outer-product engine of up to 16 × 16 = 256 MACs; <<ime-emulc-examples>> (c) is a rank-4 engine of 4 × 4 × 4 = 64 MACs. Both `N_MAC` and `I` increase as `LAMBDA` decreases, so a performance-only argument always favours the smallest architecturally permissible `LAMBDA` — the largest corresponding `EMUL_C` in <<ime-emulc-table>>. Area and power push the other way: the 256-MAC array of (a) is four times the arithmetic hardware of (c). An implementation with a limited area or power budget may therefore choose to support a larger `LAMBDA`, accepting lower compute intensity and lower peak throughput in exchange for a smaller multiplier. Subject to that budget, the highest-performance supported geometry for a given `VLEN` and `SEW` is the one with the largest `EMUL_C` among the implementation's supported values.
 Achieved performance at the thread level is also constrained by operation latency. That can be mitigated through simultaneous multi-threading.
 
-*Dependence on `L`, and hence on `SEW`.* As shown in <<ime-emulc-examples>> and <<ime-emulc-examples-L32>>, different choices of `LAMBDA` for a given `L` = `VLEN`/`SEW` lead to different shapes of the multiplier array. Since `VLEN` is fixed for an implementation, the flexibility in `LAMBDA` lets the same multiplier array shape be used for different `SEW`. For example, if `VLEN`=512, a 16 × 16 array can be used with both (`SEW` = 32, `LAMBDA` = 1) and (`SEW` = 16, `LAMBDA` = 2). In general, a `M` × `M` multiplier array can be used by setting `LAMBDA` = `L` ÷ `M` (when legal). Narrower C elements (smaller `SEW`) raise the value of `L` and therefore require a larger `LAMBDA` to result in the same multiplier shape.
+*Dependence on `L`, and hence on `SEW`.* As shown in <<ime-emulc-examples>> and <<ime-emulc-examples-L32>>, different architecturally permissible values of `LAMBDA` for a given `L` = `VLEN`/`SEW` lead to different shapes of the multiplier array. Since `VLEN` is fixed for an implementation, support for appropriate `LAMBDA` values can let the same multiplier array shape be used for different `SEW`. For example, if `VLEN`=512, a 16 × 16 array can be used with both (`SEW` = 32, `LAMBDA` = 1) and (`SEW` = 16, `LAMBDA` = 2). In general, a `M` × `M` multiplier array can be used when the selected `LAMBDA` is `L` ÷ `M` and that value is supported. Narrower C elements (smaller `SEW`) raise the value of `L` and therefore require selecting a larger supported `LAMBDA` to obtain the same multiplier shape.
 As previously discussed, a larger choice of `M`, and corresponding `EMUL_C`, leads to higher compute intensity.
 (If the shape of the C tile being computed is `M` × `M`, then the largest multiplier array that can be used effectively is also `M` × `M`. However, it is always possible to use a smaller array, but that leads to lower performance.)
 
