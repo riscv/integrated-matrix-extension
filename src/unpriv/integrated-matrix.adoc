@@ -2206,26 +2206,75 @@ The `bs` field in `vtype` (see <<integrated-matrix-bs>>) selects the
 microscaling block size.  When `bs=0`, the block size is 32 elements
 (standard OCP MX); when `bs=1`, the block size is 16 elements.
 
-Block size 16 doubles the number of scales per row/column (`S_blocks` is
-doubled), which doubles the M × `S_blocks` capacity requirement.  To guarantee that the
-paired scales fit within `v0`, the following constraint is imposed when
-`bs=1` and `vm=0`:
+Let `S_blocks_32` and `S_blocks_16` denote the numbers of active scale
+blocks for block sizes 32 and 16, respectively:
+
+    S_blocks_32 = ⌈K_eff / 32⌉
+    S_blocks_16 = ⌈K_eff / 16⌉
+
+Because every legal `K_eff` is a positive power of two,
+`S_blocks_16 = S_blocks_32 = 1` when `K_eff ≤ 16`, and
+`S_blocks_16 = 2 × S_blocks_32` when `K_eff ≥ 32`.
+
+Selecting block size 16 therefore either leaves the active scale-pair count
+per row or column unchanged or doubles it. It does not change the physical
+`M × R` layout in `v0`; it may increase the number of active positions
+within that fixed layout.
+
+For the currently defined E8M0 scale format, whose scale-pair width _pw_ is
+16 bits, the active scale pairs fit within each row stride exactly when
 
     W × LMUL ≤ SEW
 
-If this constraint is violated, the instruction raises an
-illegal-instruction exception.
+Because IME supports `LMUL` ∈ {`1`, `2`, `4`, `8`}, the maximum `LMUL`
+permitted by this block-size-16 capacity rule is the largest member of that
+set no greater than `SEW/W`. If the condition is violated when `bs=1` and
+`vm=0`, the instruction raises an illegal-instruction exception.
 
-.Maximum LMUL for block_size = 16
-[cols="2,2,1,1,1", options="header"]
+.Maximum LMUL imposed by block size 16 for currently defined MX encodings
+[cols="3,2,1,1,1", options="header"]
 |===
-| Input format | Instruction | W | SEW | Max LMUL
+| Input → accumulator format | Instruction | W | SEW | Maximum LMUL
 
-| FP4 → FP16/BF16   | vfqmmacc  | 4 | 16 | 4
-| FP4 → OFP8         | vfwmmacc   | 2 | 8  | 4
-| Int4 → FP16/BF16   | vfqimmacc | 4 | 16 | 4
-| All others          | —          | — | —  | 8 (no restriction)
+| OFP4 → OFP8
+| `vfwmmacc.vv`
+| 2
+| 8
+| 4
+
+| OFP4 → FP16/BF16
+| `vfqmmacc.vv`
+| 4
+| 16
+| 4
+
+| OFP4 → FP32
+| `vf8wmmacc.vv`
+| 8
+| 32
+| 4
+
+| MXINT4 → FP16/BF16
+| `vfqimmacc.vv`
+| 4
+| 16
+| 4
+
+| MXINT4 → FP32
+| `vf8wimmacc.vv`
+| 8
+| 32
+| 4
+
+| All other currently defined MX encodings
+| —
+| —
+| —
+| 8 (no additional block-size-16 restriction)
 |===
+
+This table summarizes only the additional `block_size=16` row-capacity
+restriction; all other instruction legality requirements continue to apply.
 
 ===== Applicability
 
