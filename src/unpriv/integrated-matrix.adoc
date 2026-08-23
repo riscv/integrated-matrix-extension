@@ -186,19 +186,35 @@ image::png/ime-emulc-table.png[width=80%, align=center, alt="Table of choices of
 
 We see in <<ime-emulc-table>> that the majority of cases permit either two or three `LAMBDA` values.
 Furthermore, in those cases the corresponding values for `EMUL_C` are either `EMUL_C` ∈ {1, 4, 16} or `EMUL_C` ∈ {2, 8}.
-Highly optimized versions of a matrix-multiply kernel are specialized for a particular value of `EMUL_C`, as that dictates the multiplicity of a vector register group holding the C tile in a C ← A × B^T^ + C computation,
-but are otherwise portable across specific choices of `VLEN` and `LAMBDA`.
-Therefore, a fully portable binary includes five (5) versions of a matrix-multiply kernel (one for each value of `EMUL_C`), with a run-time selector of which kernel to execute on a specific situation.
+A high-performance matrix-multiply microkernel is often organized for a
+particular value of `EMUL_C`, because `EMUL_C` determines the number and
+alignment of vector registers occupied by each C accumulator tile. The
+same microkernel organization can otherwise be reused across combinations
+of `VLEN` and `LAMBDA` that produce that `EMUL_C`.
 
-==== Example of a fully portable matrix multiply code
+For the `EMUL_C` dimension alone, one performance-portable strategy is to
+provide five specialized microkernel organizations, one for each
+`EMUL_C` ∈ {`1`, `2`, `4`, `8`, `16`}, and select among them at run time.
+This strategy can maintain efficient use of the sixteen registers devoted
+to C accumulators across all five geometries.
 
-<<microdgemm-example>> illustrates how one executable can select among
-five microkernel organizations according to the value of `EMUL_C`.
+Five specialized organizations are not required for functional
+portability. A correct implementation may instead use one generalized
+microkernel, or a smaller set of specialized microkernels together with a
+generic fallback.
+
+==== Example of performance-portable matrix multiply dispatch
+
+<<microdgemm-example>> illustrates one performance-oriented strategy in
+which a binary selects among five microkernel organizations according to
+the value of `EMUL_C`. The example specializes exhaustively along the
+`EMUL_C` dimension; it does not imply that functional portability requires
+five separate implementations.
 Arguments `A`  and `B` are the input matrices. The result C is stored in vector register v16-v31.
 Arguments `M`, `N`, and `K` define the shape of the matrix multiply, following BLAS convention.
 Arguments `L` and `lambda` are (`VLEN`/`SEW`) and the selected `LAMBDA`, respectively.
 Although many concepts will only be introduced later, the example
-illustrates the general approach to low overhead portable code.
+illustrates the general approach to low-overhead runtime specialization.
 The computation of `EMUL_C`, and the consequent decision of which code version to execute,
 are performed only once per microkernel execution.
 Once the appropriate code path is selected, the microkernel code is tight, with
