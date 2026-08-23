@@ -2138,27 +2138,27 @@ Each of the VLEN ÷ _pw_ positions is a _pw_-bit element, so the total is
 exactly VLEN bits — the scale data fills one register in every legal
 configuration.
 
-**R ≥ S proof** (tile stride is never smaller than the active count):
+**R ≥ S_blocks proof** (tile stride is never smaller than the active count):
 
 * block_size = 32: The encoding tables (<<tbl-fp-encoding-map>>,
   <<tbl-intmx-encoding-map>>) mark all combinations with W × LMUL > 2 × SEW
   as _reserved_, so every legal encoding satisfies W × LMUL ≤ 2 × SEW.
   Therefore K_eff = LAMBDA × W × LMUL ≤ 2 × LAMBDA × SEW, giving
-  S = ⌈K_eff / 32⌉ ≤ ⌈2 × LAMBDA × SEW / 32⌉ ≤ LAMBDA × SEW / _pw_ = R
+  S_blocks = ⌈K_eff / 32⌉ ≤ ⌈2 × LAMBDA × SEW / 32⌉ ≤ LAMBDA × SEW / _pw_ = R
   (for _pw_ ≤ 16).
 * block_size = 16: The BS=16 legality check (W × LMUL ≤ SEW, stated in
   each instruction's Exceptions section) ensures
   K_eff = LAMBDA × W × LMUL ≤ LAMBDA × SEW, giving
-  S = ⌈K_eff / 16⌉ ≤ ⌈LAMBDA × SEW / 16⌉ ≤ LAMBDA × SEW / _pw_ = R
+  S_blocks = ⌈K_eff / 16⌉ ≤ ⌈LAMBDA × SEW / 16⌉ ≤ LAMBDA × SEW / _pw_ = R
   (for _pw_ ≤ 16).
 
-When S < R, positions _s_ ∈ [S, R) within each row are padding and their
+When `S_blocks` < R, positions _s_ ∈ [`S_blocks`, R) within each row are padding and their
 contents are ignored by the instruction.
 
 .Scale layout parameters (block_size = 32, VLEN = 256)
 [cols="1,1,1,1,1,1,1,1", options="header"]
 |===
-| SEW | LAMBDA | W | LMUL | M | S | R | 16-bit extent (M×R)
+| SEW | LAMBDA | W | LMUL | M | S_blocks | R | 16-bit extent (M×R)
 
 | 8  | 2 | 1 | 1 | 16 | 1 | 1 | 16
 | 8  | 2 | 1 | 8 | 16 | 1 | 1 | 16
@@ -2168,7 +2168,7 @@ contents are ignored by the instruction.
 | 16 | 1 | 1 | 2 | 16 | 1 | 1 | 16
 | 16 | 1 | 2 | 1 | 16 | 1 | 1 | 16
 | 16 | 1 | 4 | 1 | 16 | 1 | 1 | 16
-| 16 | 1 | 4 | 8 | 16 | 1 | 1 | 16 ^footnote:packfull[S = R: fully packed, no padding]
+| 16 | 1 | 4 | 8 | 16 | 1 | 1 | 16 ^footnote:packfull[S_blocks = R: fully packed, no padding]
 | 16 | 2 | 4 | 1 | 8  | 1 | 2 | 16
 | 16 | 2 | 4 | 8 | 8  | 2 | 2 | 16 ^footnote:packfull[]
 | 32 | 1 | 1 | 1 | 8  | 1 | 2 | 16
@@ -2177,8 +2177,8 @@ contents are ignored by the instruction.
 | 64 | 1 | 1 | 1 | 4  | 1 | 4 | 16
 |===
 
-Within each row stride, elements at positions _s_ ∈ [S, R) are padding
-and need not be initialised.  When S = R, the layout is fully packed with
+Within each row stride, elements at positions _s_ ∈ [`S_blocks`, R) are padding
+and need not be initialised.  When `S_blocks` = R, the layout is fully packed with
 no padding.
 
 ===== Block size selection
@@ -2187,8 +2187,8 @@ The `bs` field in `vtype` (see <<integrated-matrix-bs>>) selects the
 microscaling block size.  When `bs=0`, the block size is 32 elements
 (standard OCP MX); when `bs=1`, the block size is 16 elements.
 
-Block size 16 doubles the number of scales per row/column (S is doubled),
-which doubles the M × S capacity requirement.  To guarantee that the
+Block size 16 doubles the number of scales per row/column (`S_blocks` is
+doubled), which doubles the M × `S_blocks` capacity requirement.  To guarantee that the
 paired scales fit within `v0`, the following constraint is imposed when
 `bs=1` and `vm=0`:
 
@@ -2242,8 +2242,8 @@ This section is _informative_ (non-normative).
 
 The tile-strided scale layout in `v0` uses M × R 16-bit elements (always
 VLEN ÷ 16 elements, filling exactly one register).  Within each of the M
-row strides of length R, the first S positions are active and positions
-[S, R) are padding.  The following options are listed from simplest to most
+row strides of length R, the first `S_blocks` positions are active and
+positions [`S_blocks`, R) are padding.  The following options are listed from simplest to most
 complex.
 
 *Option 1 — Pre-paired tile-strided load via `vmtl.v` (single instruction):*
@@ -2287,17 +2287,17 @@ This works for all SEW values since M × R = VLEN ÷ _pw_ always (where _pw_ is 
 *Options 3–5 — Constructing from separate `scale_A` / `scale_B` arrays:*
 
 The following sequences construct the paired layout from separate
-`scale_A` and `scale_B` byte arrays, producing M × S contiguous pairs.
-This produces the correct tile-strided layout when S = R (fully packed).
-When S < R, the output must be placed at stride R, e.g., by storing
-the M × S pairs into a pre-zeroed M × R buffer before loading with
+`scale_A` and `scale_B` byte arrays, producing M × `S_blocks` contiguous pairs.
+This produces the correct tile-strided layout when `S_blocks` = R (fully packed).
+When `S_blocks` < R, the output must be placed at stride R, e.g., by storing
+the M × `S_blocks` pairs into a pre-zeroed M × R buffer before loading with
 Option 2.
 
 *Option 3 — Base V (widen + shift + OR):*
 
 [source,asm]
 ----
-    # a0 = &scale_A, a1 = &scale_B (M × S bytes each), a2 = M × S
+    # a0 = &scale_A, a1 = &scale_B (M × S_blocks bytes each), a2 = M × S_blocks
     vsetvli  t0, a2, e8, mf2, ta, ma
     vle8.v   v1, (a0)             # load scale_A
     vle8.v   v2, (a1)             # load scale_B
@@ -2312,7 +2312,7 @@ Option 2.
 
 [source,asm]
 ----
-    # a0 = &scale_A, a1 = &scale_B (M × S bytes each), a2 = M × S
+    # a0 = &scale_A, a1 = &scale_B (M × S_blocks bytes each), a2 = M × S_blocks
     vsetvli  t0, a2, e8, mf2, ta, ma
     vle8.v   v1, (a0)             # load scale_A
     vle8.v   v2, (a1)             # load scale_B
@@ -2326,7 +2326,7 @@ Option 2.
 
 [source,asm]
 ----
-    # a0 = &scale_A, a1 = &scale_B (M × S bytes each), a2 = M × S
+    # a0 = &scale_A, a1 = &scale_B (M × S_blocks bytes each), a2 = M × S_blocks
     vsetvli  t0, a2, e8, mf2, ta, ma
     vle8.v   v1, (a0)             # load scale_A
     vle8.v   v2, (a1)             # load scale_B
@@ -5184,7 +5184,7 @@ function int_scaled_gemm(g : gemm_geom,
   check_gemm_reg_groups(g, vs1, vs2, vd);
   let pw : int = 2 * scale_width_of(scale_fmt);
   let block_size : int = if vtype[bs] == 0b1 then 16 else 32;
-  let S : int = (g.K_eff + block_size - 1) / block_size;
+  let S_blocks : int = (g.K_eff + block_size - 1) / block_size;
   let R : int = g.lambda * g.EEW_C / pw;
 
   foreach (j from 0 to (g.N - 1)) {
@@ -5193,7 +5193,7 @@ function int_scaled_gemm(g : gemm_geom,
       var acc : bits(g.EEW_C) = read_single_element(g.EEW_C, c_flat, vd);
       var nan_out : bool = false;
 
-      foreach (s from 0 to (S - 1)) {
+      foreach (s from 0 to (S_blocks - 1)) {
         let (blk_scale, is_nan) = read_block_scales(0b0, i, j, s, R,
                                                      g.EEW_C, fmt_C, scale_fmt, rm);
         if is_nan then { nan_out = true; break };
