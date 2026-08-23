@@ -210,15 +210,25 @@ which a binary selects among five microkernel organizations according to
 the value of `EMUL_C`. The example specializes exhaustively along the
 `EMUL_C` dimension; it does not imply that functional portability requires
 five separate implementations.
-Arguments `A`  and `B` are the input matrices. The result C is stored in vector register v16-v31.
-Arguments `M`, `N`, and `K` define the shape of the matrix multiply, following BLAS convention.
-Arguments `L` and `lambda` are (`VLEN`/`SEW`) and the selected `LAMBDA`, respectively.
+
+Arguments `A` and `B` are the input matrices. The result C is accumulated
+in vector registers `v16` through `v31`. Arguments `M`, `N`, and `K`
+define the shape of the matrix multiply, following BLAS convention.
+
+The `requested_lambda` argument is a semantic `LAMBDA` request in
+{`0`, `1`, `2`, `4`, `8`, `16`, `32`, `64`}. After establishing `SEW=64`
+and `LMUL=1`, the routine submits that request through
+`__riscv_vsetlambda` and uses the returned selected value for all geometry,
+loop-step, address, and dispatch calculations. A zero request invokes the
+preserve-or-initialize rule. The value `L = VLEN/SEW` is derived from
+`__riscv_ime_vlen()` rather than supplied by the caller.
+
 Although many concepts will only be introduced later, the example
 illustrates the general approach to low-overhead runtime specialization.
-The computation of `EMUL_C`, and the consequent decision of which code version to execute,
-are performed only once per microkernel execution.
-Once the appropriate code path is selected, the microkernel code is tight, with
-only input loads (`vle64` instructions) and computations (`vfmmacc` instructions) (and address updates) in the loop body.
+Configuration, computation of `EMUL_C`, and selection of the code path are
+performed only once per microkernel execution. Once the appropriate code
+path is selected, the loop body contains only input loads (`vle64`
+instructions), computations (`vfmmacc` instructions), and address updates.
 
 [#microdgemm-example]
 .Runtime specialization of a double-precision GEMM microkernel by `EMUL_C`
@@ -226,26 +236,33 @@ only input loads (`vle64` instructions) and computations (`vfmmacc` instructions
 ----
 void microdgemm
 (
-    u32     K,
-    double *A,
-    double *B,
-    u32     M,
-    u32     N,
-    u32     L,
-    u32     lambda
+    u32      K,
+    double  *A,
+    double  *B,
+    u32      M,
+    u32      N,
+    size_t   requested_lambda
 )
 {
-    assert(0 == K % lambda);           // <1>
-    u32 emul_c = L/(lambda * lambda);  // <2>
+    vsetvli(5, 0, 64, 1, true, true);                 // <1>
 
-    vsetvli(5, 0, 64, 1, true, true);
-    for (u32 r=16; r<32; r++) vxor.vv(r, r, r);         // <3>
+    size_t lambda = __riscv_vsetlambda(requested_lambda);
+    assert(lambda != 0);                              // <2>
+
+    size_t L = __riscv_ime_vlen() / 64;               // <3>
+    assert(0 == L % (lambda * lambda));
+    size_t emul_c = L / (lambda * lambda);
+    assert(emul_c == 1 || emul_c == 2 || emul_c == 4 ||
+           emul_c == 8 || emul_c == 16);              // <4>
+    assert(0 == K % lambda);                           // <5>
+
+    for (u32 r=16; r<32; r++) vxor.vv(r, r, r);       // <6>
 
     // We have 5 possible variants of the code, depending on "emul_c"
     // (the number of output registers per basic vfmmacc)
     // emul_c = 1, 2, 4, 8, 16
 
-    if (emul_c == 16) {                      // <4>
+    if (emul_c == 16) {                      // <7>
         u32 stepA = M * lambda;
         u32 stepB = N * lambda;
         for (u32 k=0; k<K; k=k+lambda)
@@ -254,7 +271,7 @@ void microdgemm
             vle64.v(8, B); B += stepB;
             vfmmacc.vv(16, 0, 8);
         }
-    } else if (emul_c == 8) {               // <5>
+    } else if (emul_c == 8) {               // <8>
         u32 stepA = M/2 * lambda;
         u32 stepB = N * lambda;
         for (u32 k=0; k<K; k=k+lambda)
@@ -265,7 +282,7 @@ void microdgemm
             vle64.v(1, A); A += stepA;
             vfmmacc.vv(24, 1, 8);
         }
-    } else if (emul_c == 4) {               // <6>
+    } else if (emul_c == 4) {               // <9>
         u32 stepA = M/2 * lambda;
         u32 stepB = N/2 * lambda;
         for (u32 k=0; k<K; k=k+lambda)
@@ -279,7 +296,7 @@ void microdgemm
             vfmmacc.vv(24, 0, 9);
             vfmmacc.vv(28, 1, 9);
         }
-    } else if (emul_c == 2) {              // <7>
+    } else if (emul_c == 2) {              // <10>
         u32 stepA = M/4 * lambda;
         u32 stepB = N/2 * lambda;
         for (u32 k=0; k<K; k=k+lambda)
@@ -299,7 +316,7 @@ void microdgemm
             vfmmacc.vv(28, 2, 9);
             vfmmacc.vv(30, 3, 9);
         }
-    } else if (emul_c == 1) {             // <8>
+    } else if (emul_c == 1) {             // <11>
         u32 stepA = M/4 * lambda;
         u32 stepB = N/4 * lambda;
         for (u32 k=0; k<K; k=k+lambda)
@@ -332,20 +349,42 @@ void microdgemm
     }
 }
 ----
-<1> For simplicity, `K` is an integer multiple of `lambda`.
-<2> `emul_c` is the number of vector registers occupied by one physical
-    C accumulator tile.
-<3> Vector registers `v16` through `v31` hold the output accumulators and
+<1> The double-precision microkernel first establishes `SEW=64` and
+    `LMUL=1`. Because this operation may change `SEW`, it may replace a
+    previously selected `LAMBDA`.
+<2> `requested_lambda` is assumed to be in the valid intrinsic domain and
+    is submitted only after the required `SEW` has been established. A zero
+    request is permitted and invokes the preserve-or-initialize rule. The
+    returned `lambda` is the actual selected value after WARL processing and
+    is used throughout the microkernel. A zero return indicates that no
+    nonzero value could be selected for the configuration.
+<3> `L` is computed from the architectural VLEN after establishing
+    `SEW=64`; it is not trusted as a caller-supplied geometry value.
+<4> The assertions verify that the selected `LAMBDA` produces an integral
+    physical accumulator geometry and that `emul_c` is one of the five
+    architectural C register-group multiplicities.
+<5> For simplicity, `K` is an integer multiple of the actual selected
+    `lambda`.
+<6> Vector registers `v16` through `v31` hold the output accumulators and
     are initialized to zero.
-<4> With `EMUL_C=16`, one matrix instruction updates a single
+<7> With `EMUL_C=16`, one matrix instruction updates a single
     sixteen-register C tile.
-<5> With `EMUL_C=8`, the sixteen output registers hold two C tiles.
-<6> With `EMUL_C=4`, the output is decomposed into a 2-by-2 array of C
+<8> With `EMUL_C=8`, the sixteen output registers hold two C tiles.
+<9> With `EMUL_C=4`, the output is decomposed into a 2-by-2 array of C
     tiles.
-<7> With `EMUL_C=2`, the output is decomposed into a 4-by-2 array of C
+<10> With `EMUL_C=2`, the output is decomposed into a 4-by-2 array of C
     tiles.
-<8> With `EMUL_C=1`, the output is decomposed into a 4-by-4 array of
+<11> With `EMUL_C=1`, the output is decomposed into a 4-by-4 array of
     single-register C tiles.
+
+The example is adaptable: it accepts the supported nonzero `LAMBDA`
+selected after WARL processing and dispatches using that returned value.
+Software whose A and B panel packing or kernel contract requires an exact
+nonzero `LAMBDA` cannot silently accept canonicalization. It must compare
+the returned `lambda` with `requested_lambda` and select an appropriately
+packed panel, another kernel, or a fallback when they differ. A zero request
+intentionally invokes preserve-or-initialize behavior and therefore does
+not name an exact nonzero value.
 
 The geometries and register configurations for the five microkernel versions are illustrated in <<ime-portable-microkernel>>.
 In all versions, 16 vector registers are used to store accumulator tiles.
