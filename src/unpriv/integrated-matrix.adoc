@@ -2316,9 +2316,9 @@ microscaling-quantised models.
 ====
 This section is _informative_ (non-normative).
 
-All six strategies below are specific to the E8M0 layout defined by this
-version: each encoded scale is 8 bits, and each (`scale_A`, `scale_B`) pair
-occupies one 16-bit paired-scale element.
+The five principal strategies below are specific to the E8M0 layout defined
+by this version: each encoded scale is 8 bits, and each (`scale_A`,
+`scale_B`) pair occupies one 16-bit paired-scale element.
 
 The tile-strided physical E8M0 scale layout in `v0` occupies M × R 16-bit
 elements (always VLEN ÷ 16 elements, exactly one vector register). Within
@@ -2334,13 +2334,32 @@ construction sequences below materialize and transfer the fixed M-row
 physical layout. Any padding storage that they load must still be
 addressable, even though its values do not affect the result or `fflags`.
 
+The sequences below temporarily modify `vl` and one or more standard
+`vtype` fields. A `vsetvli` or `vsetivli` that changes `SEW` may also cause
+the selected `LAMBDA` to be replaced according to the preserve-or-initialize
+rules in <<integrated-matrix-vtype-config>>.
+
+Before executing the microscaled matrix instruction, software must
+reestablish the complete intended compute configuration, including the
+selected `LAMBDA`. Merely restoring `SEW` and `LMUL` with `vsetvli` does not
+necessarily restore the previous `LAMBDA`. Software may, for example, save
+`vl` and the complete `vtype` before constructing the scales and restore them
+afterward with `vsetvl`. Alternatively, it may reestablish the configuration
+fields individually and verify the resulting selected `LAMBDA`.
+
 The following options are listed from simplest to most complex.
 
 *Option 1 — Pre-paired E8M0 tile-strided load via `vmtl.v` (single instruction):*
 
 When the application stores pre-paired E8M0 (`scale_A`, `scale_B`) 16-bit
 elements in a 2D scale matrix (M rows, stride LD ≥ R between rows), a single
-`vmtl.v` loads the current tile's scales directly into `v0`:
+`vmtl.v` loads the current tile's scales directly into `v0`.
+
+This option assumes that the intended compute configuration uses `SEW=16`
+and that its selected `LAMBDA` has already been established. The temporary
+configuration below retains `SEW=16` and changes `LMUL` to 1. Because the set
+of supported `LAMBDA` values does not depend on `LMUL`, the selected
+`LAMBDA` is retained.
 
 [source,asm]
 ----
@@ -2351,13 +2370,14 @@ elements in a 2D scale matrix (M rows, stride LD ≥ R between rows), a single
     vmtl.v   v0, (a0), a3         # tile-load pre-paired scales
 ----
 
-With EEW = 16 and LMUL = 1, linesize = LAMBDA = R (when SEW = 16).  Each
-`vmtl.v` line corresponds to one scale row, and LD allows rows to be
-non-contiguous in the outer scale matrix.  When LD = R, this reduces to a
-unit-stride load.
+With EEW = 16 and LMUL = 1, linesize = LAMBDA = R. Each `vmtl.v` line
+corresponds to one scale row, and LD allows rows to be non-contiguous in the
+outer scale matrix. When LD = R, this reduces to a unit-stride load.
 
-This form requires SEW = 16 (i.e., R = LAMBDA).  For SEW > 16, R > LAMBDA
-and a single `vmtl.v` cannot span a full scale row; use Option 2 instead.
+For other intended compute `SEW` values, the relation R = LAMBDA does not
+hold; use Option 2 unless a separate geometry-specific tile-load sequence
+has been validated. Before the matrix instruction, restore the complete
+intended compute configuration as described above.
 
 *Option 2 — Pre-paired E8M0 flat load (`vle16.v`):*
 
@@ -2428,22 +2448,6 @@ The `vzip.vv` instruction interleaves at SEW=8: the byte sequence
 elements yields `element[i] = B[i]<<8 | A[i]`, which is exactly the
 required paired layout.
 
-*Option 6 — Separate E8M0 scales via `vmtl.v` + `vzip.vv` (SEW = 16):*
-
-When SEW = 16 and E8M0 scales reside in separate 2D arrays, `vmtl.v` can
-load each scale array with the correct tile stride, then `vzip.vv` pairs them:
-
-[source,asm]
-----
-    # a0 = &scale_A, a1 = &scale_B (M rows, LD bytes between rows)
-    # a2 = M × R (= VLEN / 16), a3 = LD (leading dimension in elements)
-    vsetvli  t0, a2, e8, m1, ta, ma
-    vmtl.v   v1, (a0), a3          # tile-load scale_A
-    vmtl.v   v2, (a1), a3          # tile-load scale_B
-    vsetvli  t0, a2, e8, mf2, ta, ma
-    vzip.vv  v0, v1, v2            # pair into 16-bit layout
-----
-
 .E8M0 scale-packing instruction count comparison
 [cols="1,1,1,1", options="header"]
 |===
@@ -2454,8 +2458,60 @@ load each scale array with the correct tile stride, then `vzip.vv` pairs them:
 | 3 (Base V)                      | 5 | 2 | 7
 | 4 (Zvbb)                        | 4 | 2 | 6
 | 5 (Zvzip)                       | 3 | 1 | 4
-| 6 (vmtl.v + vzip.vv)            | 3 | 2 | 5
 |===
+
+The counts above cover only the local scale-loading or scale-packing
+sequence. They exclude instructions needed to save, restore, or otherwise
+reestablish the surrounding compute configuration. When `S_blocks` < R,
+they also exclude the work needed to materialize the R-strided physical
+layout.
+
+*Target-specific optimization — separate strided E8M0 scale arrays via `vmtl.v` + `vzip.vv`:*
+
+A target-specific implementation may load separate strided `scale_A` and
+`scale_B` arrays with `vmtl.v` and then pair the results with `vzip.vv`.
+This optimization is not generally portable across implementations and is
+not included in the comparison table above.
+
+For an intended `SEW=16` compute configuration, R equals the compute-time
+selected `LAMBDA`. The temporary `SEW=8`, `LMUL=1` tile loads must therefore
+use an effective `LAMBDA` exactly equal to that compute-time value. The
+required value must be supported for the temporary (`VLEN`, `SEW=8`)
+configuration.
+
+A geometry-specialized sequence should encode the exact value in the
+nonzero instruction-lambda field. In the template below, `LLAMBDA` denotes
+one of `L1`, `L2`, `L4`, `L8`, `L16`, `L32`, or `L64`, and its value equals
+the compute-time selected `LAMBDA` and R. An instantiated sequence replaces
+`LLAMBDA` with the corresponding concrete assembler token; for example,
+compute-time `LAMBDA=4` uses `L4`.
+
+[source,asm]
+----
+    # a0 = &scale_A, a1 = &scale_B (M rows, LD bytes between rows)
+    # a2 = M × R (= VLEN / 16), a3 = LD (leading dimension in bytes)
+    # LLAMBDA encodes the exact compute-time LAMBDA (= R).
+    vsetvli  t0, a2, e8, m1, ta, ma
+    vmtl.v   v1, (a0), a3, LLAMBDA  # exact-immediate tile load of scale_A
+    vmtl.v   v2, (a1), a3, LLAMBDA  # exact-immediate tile load of scale_B
+    vsetvli  t0, a2, e8, mf2, ta, ma
+    vzip.vv  v0, v1, v2              # pair into 16-bit layout
+----
+
+The nonzero instruction-lambda field is checked exactly and is not
+WARL-canonicalized, as specified in
+<<integrated-matrix-tile-ls-legality>>. If the required value is unsupported
+for the temporary configuration, a tile load using that immediate raises an
+illegal-instruction exception and software must use another scale-
+construction strategy. Omitting the instruction-lambda field and relying on
+the dynamically selected `vtype.lambda` value is insufficient unless
+software first establishes and verifies that value, because changing `SEW`
+may replace it and silently change the memory traversal performed by
+`vmtl.v`.
+
+After this target-specific sequence, software must restore or reestablish
+the complete intended compute configuration, including its selected
+`LAMBDA`, before executing the microscaled matrix instruction.
 ====
 
 ===== Microscaling extensions
