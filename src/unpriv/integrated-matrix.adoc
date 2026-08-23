@@ -1945,7 +1945,7 @@ in <<integrated-matrix-fp-special-values-fflags>>.
 ===== Scale format: E8M0
 
 The scale format is determined by the input data type, not by the
-`v0.scale` mechanism itself.  All MX data types currently defined by this
+`v0.scale` mechanism itself.  All MX data types defined by this version of the
 specification use the E8M0 scale format.
 
 The E8M0 format (as defined by the
@@ -2086,23 +2086,31 @@ than `G`.
 
 ===== Scale layout in `v0`
 
-The register `v0` holds paired scale values at an effective element
-width of 16 bits.  Each 16-bit element contains one (scale_A, scale_B)
-pair, regardless of the scale format:
+All microscaling extensions defined by this version use the 8-bit E8M0
+scale format. Accordingly, `v0` holds paired scale values at an effective
+element width of 16 bits. Each 16-bit paired-scale element contains:
 
-* Lower byte [7:0]: `scale_A` — the block scale for a row of A~tile~.
-* Upper byte [15:8]: `scale_B` — the block scale for a column of B~tile~^T^.
+* Lower byte [7:0]: `scale_A` — the E8M0 block scale for a row of A~tile~.
+* Upper byte [15:8]: `scale_B` — the E8M0 block scale for a column of B~tile~^T^.
 
-The interpretation of each 8-bit field is determined by the scale format
-associated with the input data type (see <<integrated-matrix-scale-formats>>).
+Each 8-bit field has the E8M0 interpretation defined in
+<<integrated-matrix-scale-formats>>.
 
 [#ime-block-scale-v0]
-.Block scales are folded into `v0` in pairs, separated by the row stride R = `LAMBDA` × SEW / _pw_. Each block-scale pair supplies `scale_A` and `scale_B` for up to `block_size` consecutive logical input elements along the K dimension in the corresponding row of A~tile~ and column of B~tile~^T^; the final block may contain fewer elements. `block_size` is 32 when `bs=0` and 16 when `bs=1`. In matrix-tile representation, `v0` has the paired scales arranged in the correct scale rows. In a multi-lane setup, the scales are distributed across the lanes appropriately.
+.E8M0 block scales are folded into `v0` as 16-bit paired-scale elements, separated by the row stride R = `LAMBDA` × SEW / _pw_. Each paired-scale element supplies `scale_A` and `scale_B` for up to `block_size` consecutive logical input elements along the K dimension in the corresponding row of A~tile~ and column of B~tile~^T^; the final block may contain fewer elements. `block_size` is 32 when `bs=0` and 16 when `bs=1`. In matrix-tile representation, `v0` has the paired scales arranged in the correct scale rows. In a multi-lane setup, the scales are distributed across the lanes appropriately.
 image::png/ime-mx-v0-format.png[width="80%", align="center"]
 
-Let _sw_ = scale_width_of(scale_fmt) be the width in bits of a single scale
-value and _pw_ = 2 × _sw_ the width of a (scale_A, scale_B) pair.
-For E8M0: _sw_ = 8, _pw_ = 16.
+Let _sw_ be the width in bits of one encoded scale and _pw_ = 2 × _sw_
+the width of a paired-scale element. For every scale format defined by this
+version, _sw_ = 8 and _pw_ = 16.
+
+A future extension may define an additional scale format. An additional
+8-bit scale format may reuse this paired-scale layout only when explicitly
+specified by that extension. A scale format wider or narrower than 8 bits
+shall define its physical scale layout, row-stride and capacity rules,
+instruction-legality rules, and software loading and packing conventions.
+Support for such a format is not implied by the generic _sw_ and _pw_
+notation used below.
 
 The row stride in `v0` is R = `LAMBDA` × SEW ÷ _pw_ in units of _pw_-bit elements (see <<ime-block-scale-v0>>).
 
@@ -2146,7 +2154,7 @@ independent of the active value of `N`. Some fields may be inactive because
 of partial columns or padding.
 
 [#ime-mx-v0-lanes]
-.Example for the use of microscales in a 4-lane setup for two blocks per row of A~tile~ and per column of B~tile~^T^. The red lines symbolize the split of the vector register group across the lanes. The R-strided scales distribution in `v0` leads to the correct lane-wise block scales layout.
+.Example of the E8M0 8-bit-scale/16-bit-pair layout in a 4-lane setup for two blocks per row of A~tile~ and per column of B~tile~^T^. The red lines symbolize the split of the vector register group across the lanes. The R-strided scale distribution in `v0` leads to the correct lane-wise block-scale layout.
 image::png/ime-mx-v0-lanes.png[width="69%", align="center"]
 
 **Physical-layout capacity proof:**
@@ -2164,17 +2172,17 @@ vector register in every legal configuration.
   as _reserved_, so every legal encoding satisfies W × LMUL ≤ 2 × SEW.
   Therefore K_eff = LAMBDA × W × LMUL ≤ 2 × LAMBDA × SEW, giving
   S_blocks = ⌈K_eff / 32⌉ ≤ ⌈2 × LAMBDA × SEW / 32⌉ ≤ LAMBDA × SEW / _pw_ = R
-  (for _pw_ ≤ 16).
+  (with _pw_ = 16 in this version).
 * block_size = 16: The BS=16 legality check (W × LMUL ≤ SEW, stated in
   each instruction's Exceptions section) ensures
   K_eff = LAMBDA × W × LMUL ≤ LAMBDA × SEW, giving
   S_blocks = ⌈K_eff / 16⌉ ≤ ⌈LAMBDA × SEW / 16⌉ ≤ LAMBDA × SEW / _pw_ = R
-  (for _pw_ ≤ 16).
+  (with _pw_ = 16 in this version).
 
 When `S_blocks` < R, positions _s_ ∈ [`S_blocks`, R) within each row are padding and their
 contents are ignored by the instruction.
 
-.Scale layout parameters (block_size = 32, VLEN = 256)
+.E8M0 scale-layout parameters (block_size = 32, VLEN = 256)
 [cols="1,1,1,1,1,1,1,1", options="header"]
 |===
 | SEW | LAMBDA | W | LMUL | M | S_blocks | R | 16-bit extent (M×R)
@@ -2221,8 +2229,8 @@ per row or column unchanged or doubles it. It does not change the physical
 `M × R` layout in `v0`; it may increase the number of active positions
 within that fixed layout.
 
-For the currently defined E8M0 scale format, whose scale-pair width _pw_ is
-16 bits, the active scale pairs fit within each row stride exactly when
+For the E8M0 scale format defined by this version, whose scale-pair width
+_pw_ is 16 bits, the active scale pairs fit within each row stride exactly when
 
     W × LMUL ≤ SEW
 
@@ -2303,12 +2311,16 @@ where the limited dynamic range of the per-element format is compensated by
 the block-level E8M0 exponent, enabling high-throughput inference on
 microscaling-quantised models.
 
-===== Loading or constructing paired scales
+===== Loading or constructing E8M0 paired scales
 [NOTE]
 ====
 This section is _informative_ (non-normative).
 
-The tile-strided physical scale layout in `v0` occupies M × R 16-bit
+All six strategies below are specific to the E8M0 layout defined by this
+version: each encoded scale is 8 bits, and each (`scale_A`, `scale_B`) pair
+occupies one 16-bit paired-scale element.
+
+The tile-strided physical E8M0 scale layout in `v0` occupies M × R 16-bit
 elements (always VLEN ÷ 16 elements, exactly one vector register). Within
 each of the M row strides of length R, positions _s_ with
 `0 ≤ s < S_blocks` contain scale fields for defined blocks, and positions
@@ -2324,10 +2336,10 @@ addressable, even though its values do not affect the result or `fflags`.
 
 The following options are listed from simplest to most complex.
 
-*Option 1 — Pre-paired tile-strided load via `vmtl.v` (single instruction):*
+*Option 1 — Pre-paired E8M0 tile-strided load via `vmtl.v` (single instruction):*
 
-When the application stores pre-paired (scale_A, scale_B) 16-bit elements
-in a 2D scale matrix (M rows, stride LD ≥ R between rows), a single
+When the application stores pre-paired E8M0 (`scale_A`, `scale_B`) 16-bit
+elements in a 2D scale matrix (M rows, stride LD ≥ R between rows), a single
 `vmtl.v` loads the current tile's scales directly into `v0`:
 
 [source,asm]
@@ -2347,9 +2359,9 @@ unit-stride load.
 This form requires SEW = 16 (i.e., R = LAMBDA).  For SEW > 16, R > LAMBDA
 and a single `vmtl.v` cannot span a full scale row; use Option 2 instead.
 
-*Option 2 — Pre-paired flat load (`vle16.v`):*
+*Option 2 — Pre-paired E8M0 flat load (`vle16.v`):*
 
-If the pre-paired tile-strided data is already contiguous in memory (M × R
+If the pre-paired E8M0 tile-strided data is already contiguous in memory (M × R
 16-bit elements), a unit-stride load suffices:
 
 [source,asm]
@@ -2362,16 +2374,16 @@ If the pre-paired tile-strided data is already contiguous in memory (M × R
 
 This works for all SEW values since M × R = VLEN ÷ _pw_ always (where _pw_ is the scale-pair width).
 
-*Options 3–5 — Constructing from separate `scale_A` / `scale_B` arrays:*
+*Options 3–5 — Constructing E8M0 pairs from separate `scale_A` / `scale_B` arrays:*
 
-The following sequences construct the paired layout from separate
+The following sequences construct the E8M0 paired layout from separate
 `scale_A` and `scale_B` byte arrays, producing M × `S_blocks` contiguous pairs.
 This produces the correct tile-strided layout when `S_blocks` = R (fully packed).
 When `S_blocks` < R, the output must be placed at stride R, e.g., by storing
 the M × `S_blocks` pairs into a pre-zeroed M × R buffer before loading with
 Option 2.
 
-*Option 3 — Base V (widen + shift + OR):*
+*Option 3 — E8M0 packing with Base V (widen + shift + OR):*
 
 [source,asm]
 ----
@@ -2386,7 +2398,7 @@ Option 2.
     vor.vv   v0, v0, v3           # combine into paired layout
 ----
 
-*Option 4 — Zvbb (widening shift + OR):*
+*Option 4 — E8M0 packing with Zvbb (widening shift + OR):*
 
 [source,asm]
 ----
@@ -2400,7 +2412,7 @@ Option 2.
     vor.vv   v0, v0, v3           # combine into paired layout
 ----
 
-*Option 5 — Zvzip (interleave):*
+*Option 5 — E8M0 packing with Zvzip (interleave):*
 
 [source,asm]
 ----
@@ -2416,10 +2428,10 @@ The `vzip.vv` instruction interleaves at SEW=8: the byte sequence
 elements yields `element[i] = B[i]<<8 | A[i]`, which is exactly the
 required paired layout.
 
-*Option 6 — Separate scales via `vmtl.v` + `vzip.vv` (SEW = 16):*
+*Option 6 — Separate E8M0 scales via `vmtl.v` + `vzip.vv` (SEW = 16):*
 
-When SEW = 16 and scales reside in separate 2D arrays, `vmtl.v` can load
-each scale array with the correct tile stride, then `vzip.vv` pairs them:
+When SEW = 16 and E8M0 scales reside in separate 2D arrays, `vmtl.v` can
+load each scale array with the correct tile stride, then `vzip.vv` pairs them:
 
 [source,asm]
 ----
@@ -2432,7 +2444,7 @@ each scale array with the correct tile stride, then `vzip.vv` pairs them:
     vzip.vv  v0, v1, v2            # pair into 16-bit layout
 ----
 
-.Scale-packing instruction count comparison
+.E8M0 scale-packing instruction count comparison
 [cols="1,1,1,1", options="header"]
 |===
 | Option | Data instructions | `vsetvli` calls | Total
@@ -2451,7 +2463,7 @@ each scale array with the correct tile stride, then `vzip.vv` pairs them:
 Microscaling extensions that add block-scaled variants of the narrow
 input formats (OFP4, OFP8, Int4, Int8) are listed separately in
 <<tbl-mx-extensions>>.
-All currently defined microscaling extensions use the E8M0 scale format.
+All microscaling extensions defined by this version use the E8M0 scale format.
 
 [#zvvmtls,reftext=Load/store instructions for matrix tiles]
 === Zvvmtls: Extension for loading and storing vector register groups interpreted as 2D matrix tiles
@@ -4726,7 +4738,7 @@ fp_defaultNaN(EEW : int, fmt : fp_fmt) -> bits(EEW)
 
 // scale_width_of(sfmt : scale_format) -> int
 //   Return the width in bits of a single scale value for the given format.
-//   E8M0 → 8.  Future formats may return 16.
+//   E8M0 → 8.  This version defines no other scale width.
 function scale_width_of(sfmt : scale_format) -> int =
   match sfmt {
     E8M0 => 8
