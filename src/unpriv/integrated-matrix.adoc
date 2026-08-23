@@ -2097,7 +2097,7 @@ The interpretation of each 8-bit field is determined by the scale format
 associated with the input data type (see <<integrated-matrix-scale-formats>>).
 
 [#ime-block-scale-v0]
-.Block scales are folded into `v0` in pairs, separated by the row stride R = `LAMBDA` × SEW / _pw_. Each block-scale pair is used for `bs` consecutive tile elements in the corresponding row of A~tile~ and column of B~tile~^T^. In matrix-tile representation, `v0` has the paired scales arranged in the correct scale rows. In a multi-lane setup, the scales are distributed across the lanes appropriately.
+.Block scales are folded into `v0` in pairs, separated by the row stride R = `LAMBDA` × SEW / _pw_. Each block-scale pair supplies `scale_A` and `scale_B` for up to `block_size` consecutive logical input elements along the K dimension in the corresponding row of A~tile~ and column of B~tile~^T^; the final block may contain fewer elements. `block_size` is 32 when `bs=0` and 16 when `bs=1`. In matrix-tile representation, `v0` has the paired scales arranged in the correct scale rows. In a multi-lane setup, the scales are distributed across the lanes appropriately.
 image::png/ime-mx-v0-format.png[width="80%", align="center"]
 
 Let _sw_ = scale_width_of(scale_fmt) be the width in bits of a single scale
