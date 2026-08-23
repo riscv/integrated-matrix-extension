@@ -2106,7 +2106,8 @@ For E8M0: _sw_ = 8, _pw_ = 16.
 
 The row stride in `v0` is R = `LAMBDA` × SEW ÷ _pw_ in units of _pw_-bit elements (see <<ime-block-scale-v0>>).
 
-For each tile index _m_, the first `S_blocks` elements are active, where
+Within each physical row stride, positions _s_ with
+`0 ≤ s < S_blocks` correspond to scale blocks, where
 
     S_blocks = ⌈K_eff / block_size⌉.
 
@@ -2121,22 +2122,40 @@ _m_ of B~tile~^T^. Specifically:
 
 * `scale_B`~m,s~ is the upper _sw_ bits of the _pw_-bit element at index (m × R + s).
 
-The total number of _pw_-bit elements spanned per tile dimension is M × R,
-where M = N = VLEN ÷ (SEW × `LAMBDA`).  Because M × R = (VLEN ÷ (SEW × `LAMBDA`)) ×
-(`LAMBDA` × SEW ÷ _pw_) = VLEN ÷ _pw_, the scale data fills exactly one register
-regardless of configuration.
+The paired-scale layout is provisioned for the fixed physical tile
+dimensions. It contains `M` row strides of `R` _pw_-bit elements, where
+`N_max` is the maximum B~tile~^T^/C column count and
+
+    M = N_max = VLEN / (SEW × `LAMBDA`).
+
+For an operation with active column count `N`, only the `scale_B` fields
+whose row-stride index _m_ satisfies `0 ≤ m < N` are active. The `scale_B`
+fields with `N ≤ m < M` are ignored and do not affect the result or
+`fflags`. The physical layout and row stride are not compacted or otherwise
+changed when `N < M`.
+
+Because
+
+    M × R
+      = (VLEN / (SEW × `LAMBDA`))
+        × (`LAMBDA` × SEW / _pw_)
+      = VLEN / _pw_,
+
+the physical paired-scale layout occupies exactly one vector register,
+independent of the active value of `N`. Some fields may be inactive because
+of partial columns or padding.
 
 [#ime-mx-v0-lanes]
 .Example for the use of microscales in a 4-lane setup for two blocks per row of A~tile~ and per column of B~tile~^T^. The red lines symbolize the split of the vector register group across the lanes. The R-strided scales distribution in `v0` leads to the correct lane-wise block scales layout.
 image::png/ime-mx-v0-lanes.png[width="69%", align="center"]
 
-**Capacity proof:**
+**Physical-layout capacity proof:**
 
-M × R = (VLEN ÷ (SEW × LAMBDA)) × (LAMBDA × SEW ÷ _pw_) = VLEN ÷ _pw_.
+M × R = (VLEN / (SEW × LAMBDA)) × (LAMBDA × SEW / _pw_) = VLEN / _pw_.
 
-Each of the VLEN ÷ _pw_ positions is a _pw_-bit element, so the total is
-exactly VLEN bits — the scale data fills one register in every legal
-configuration.
+Each of the VLEN / _pw_ positions is a _pw_-bit element, so the total is
+exactly VLEN bits — the physical paired-scale layout occupies exactly one
+vector register in every legal configuration.
 
 **R ≥ S_blocks proof** (tile stride is never smaller than the active count):
 
@@ -2240,11 +2259,21 @@ microscaling-quantised models.
 ====
 This section is _informative_ (non-normative).
 
-The tile-strided scale layout in `v0` uses M × R 16-bit elements (always
-VLEN ÷ 16 elements, filling exactly one register).  Within each of the M
-row strides of length R, the first `S_blocks` positions are active and
-positions [`S_blocks`, R) are padding.  The following options are listed from simplest to most
-complex.
+The tile-strided physical scale layout in `v0` occupies M × R 16-bit
+elements (always VLEN ÷ 16 elements, exactly one vector register). Within
+each of the M row strides of length R, positions _s_ with
+`0 ≤ s < S_blocks` contain scale fields for defined blocks, and positions
+[`S_blocks`, R) are padding.
+
+For an operation with `N < M`, all M lower-field scale rows are available
+for `scale_A`, but only the upper-field `scale_B` entries in row strides
+`0` through `N−1` are active. The `scale_B` entries in row strides `N`
+through `M−1` are padding and are ignored by the IME instruction. The
+construction sequences below materialize and transfer the fixed M-row
+physical layout. Any padding storage that they load must still be
+addressable, even though its values do not affect the result or `fflags`.
+
+The following options are listed from simplest to most complex.
 
 *Option 1 — Pre-paired tile-strided load via `vmtl.v` (single instruction):*
 
