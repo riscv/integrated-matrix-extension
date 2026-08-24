@@ -137,10 +137,10 @@ The three possible configurations for `VLEN` = 512 and `SEW` = 32 are shown in <
 image::png/ime-emulc-examples.png[width=80%, align=center, alt="Diagram of C ← A × B^T^ + C computation for different choices of `LAMBDA`."]
 
 We now introduce the third restriction on `LAMBDA`.
-This (indirect) restriction comes from the 32 vector registers being used to stored tiles A, B, and C.
-To ensure enough space for the input tiles A and B, we force `EMUL_C` ∈ {1, 2, 4, 8, 16}.
-This requires a minimum values of `LAMBDA` when (`VLEN`/`SEW`) is large.
-As an example, let us now consider the case  `VLEN` = 1024 and `SEW` = 32, leading to (`VLEN`/`SEW`) = 32.
+This indirect restriction arises because the 32 vector registers must hold tiles A, B, and C.
+To leave enough registers for the input tiles A and B, we require `EMUL_C` ∈ {1, 2, 4, 8, 16}.
+This imposes a minimum `LAMBDA` value when (`VLEN`/`SEW`) is large.
+As an example, let us now consider the case `VLEN` = 1024 and `SEW` = 32, leading to (`VLEN`/`SEW`) = 32.
 The two architecturally permissible values of `LAMBDA` (2 and 4), and the corresponding values of `M` (16 and 8), are illustrated in <<ime-vec-reg-geometry-L32>>.
 A choice of `LAMBDA` = 1 would result in `EMUL_C` = 32, leaving no space for the A and B tiles.
 The two possible configurations for `VLEN` = 1024 and `SEW` = 32 are shown in <<ime-emulc-examples-L32>>.
@@ -388,7 +388,7 @@ not name an exact nonzero value.
 
 The geometries and register configurations for the five microkernel versions are illustrated in <<ime-portable-microkernel>>.
 In all versions, 16 vector registers are used to store accumulator tiles.
-The number of vector registers with input tiles is different in each case.
+The number of vector registers used for input tiles differs among the cases.
 The overall shape of the result C is either square, if `EMUL_C` ∈ {1, 4, 16}, or rectangular, if `EMUL_C` ∈ {2, 8}.
 
 [#ime-portable-microkernel]
@@ -402,7 +402,7 @@ output tile.
 In the `EMUL_C=8` specialization, there are two eight-register accumulator tiles.
 At each iteration of the microkernel, we load one register with A input and one register
 with B input before computing one result accumulator tile.
-An additional A input register is then loaded to compute the second results accumulator
+An additional A input register is then loaded to compute the second accumulator
 tile, while reusing the B input register.
 
 The `EMUL_C=4` specialization divides the same output-register space into
@@ -415,7 +415,7 @@ a 4-by-2 array of two-register accumulator tiles. It loads four A input tiles
 and two B input tiles for each microkernel iteration. Eight matrix multiply-accumulate instructions are used to update the result.
 
 Finally, in the `EMUL_C=1` specialization, the output-register space is
-organized int a 4-by-4 array of single-register accumulator tiles.
+organized into a 4-by-4 array of single-register accumulator tiles.
 Four A input tiles and four B input tiles are loaded in each iteration, and 16 matrix multiply-accumulate instructions are used to update the result.
 
 ==== Implementation support choices for tile geometry (`LAMBDA` and `EMUL_C`)
@@ -437,7 +437,7 @@ We summarize the forces at work using the three configurations of
 <<ime-emulc-examples>> (`VLEN` = 512, `SEW` = 32, so
 `L` = `VLEN`/`SEW` = 16).
 
-*Compute intensity versus memory bandwidth.* Each update of the accumulator register group by a computational instruction (in linear algebra terms, a _rank_-`LAMBDA` update) loads the A and B operands — `M`×`LAMBDA` elements each — and performs `M`×`M`x`LAMBDA` multiply-accumulates. The compute intensity, in MACs per loaded element, is therefore
+*Compute intensity versus memory bandwidth.* Each update of the accumulator register group by a computational instruction (in linear algebra terms, a _rank_-`LAMBDA` update) loads the A and B operands — `M`×`LAMBDA` elements each — and performs `M`×`M`×`LAMBDA` multiply-accumulates. The compute intensity, in MACs per loaded element, is therefore
 
     I = (M×M×LAMBDA) ÷ (2×M×LAMBDA) = M ÷ 2 = L ÷ (2×LAMBDA).
 
@@ -454,14 +454,14 @@ For the microkernel in <<ime-portable-microkernel>>, the compute intensity is th
 
     N_MAC = M×M×LAMBDA = L² ÷ LAMBDA.
 
-<<ime-emulc-examples>> (a) is a rank-1 outer-product engine of up to 16 × 16 = 256 MACs; <<ime-emulc-examples>> (c) is a rank-4 engine of 4 × 4 × 4 = 64 MACs. Both `N_MAC` and `I` increase as `LAMBDA` decreases, so a performance-only argument always favours the smallest architecturally permissible `LAMBDA` — the largest corresponding `EMUL_C` in <<ime-emulc-table>>. Area and power push the other way: the 256-MAC array of (a) is four times the arithmetic hardware of (c). An implementation with a limited area or power budget may therefore choose to support a larger `LAMBDA`, accepting lower compute intensity and lower peak throughput in exchange for a smaller multiplier. Subject to that budget, the highest-performance supported geometry for a given `VLEN` and `SEW` is the one with the largest `EMUL_C` among the implementation's supported values.
-Achieved performance at the thread level is also constrained by operation latency. That can be mitigated through simultaneous multi-threading.
+<<ime-emulc-examples>> (a) is a rank-1 outer-product engine of up to 16 × 16 = 256 MACs; <<ime-emulc-examples>> (c) is a rank-4 engine of 4 × 4 × 4 = 64 MACs. Both `N_MAC` and `I` increase as `LAMBDA` decreases, so a performance-only argument always favors the smallest architecturally permissible `LAMBDA` — the largest corresponding `EMUL_C` in <<ime-emulc-table>>. Area and power push the other way: the 256-MAC array of (a) is four times the arithmetic hardware of (c). An implementation with a limited area or power budget may therefore choose to support a larger `LAMBDA`, accepting lower compute intensity and lower peak throughput in exchange for a smaller multiplier. Subject to that budget, the highest-performance supported geometry for a given `VLEN` and `SEW` is the one with the largest `EMUL_C` among the implementation's supported values.
+Thread-level performance is also constrained by operation latency, which can be mitigated through simultaneous multithreading.
 
 *Dependence on `L`, and hence on `SEW`.* As shown in <<ime-emulc-examples>> and <<ime-emulc-examples-L32>>, different architecturally permissible values of `LAMBDA` for a given `L` = `VLEN`/`SEW` lead to different shapes of the multiplier array. Since `VLEN` is fixed for an implementation, support for appropriate `LAMBDA` values can let the same multiplier array shape be used for different `SEW`. For example, if `VLEN`=512, a 16 × 16 array can be used with both (`SEW` = 32, `LAMBDA` = 1) and (`SEW` = 16, `LAMBDA` = 2). In general, a `M` × `M` multiplier array can be used when the selected `LAMBDA` is `L` ÷ `M` and that value is supported. Narrower C elements (smaller `SEW`) raise the value of `L` and therefore require selecting a larger supported `LAMBDA` to obtain the same multiplier shape.
 As previously discussed, a larger choice of `M`, and corresponding `EMUL_C`, leads to higher compute intensity.
-(If the shape of the C tile being computed is `M` × `M`, then the largest multiplier array that can be used effectively is also `M` × `M`. However, it is always possible to use a smaller array, but that leads to lower performance.)
+(If the C tile has shape `M` × `M`, the largest multiplier array that can be used effectively is also `M` × `M`. A smaller array remains possible but reduces performance.)
 
-*Cacheline utilization of the tile loads.* `LMUL` extends each A and B row along the K dimension. An order-preserving tile load `vmtl` transfers `LAMBDA` × `LMUL` contiguous `SEW`-bit storage elements per row. For a widening instruction, each such storage element contains `W` logical input elements of width `SEW`/`W`, so the arithmetic depth is
+*Cache-line utilization of the tile loads.* `LMUL` extends each A and B row along the K dimension. An order-preserving tile load `vmtl.v` transfers `LAMBDA` × `LMUL` contiguous `SEW`-bit storage elements per row. For a widening instruction, each such storage element contains `W` logical input elements of width `SEW`/`W`, so the arithmetic depth is
 
     K_eff = LAMBDA × W × LMUL.
 
@@ -469,11 +469,11 @@ The amount of storage transferred for each row is therefore
 
     LAMBDA × LMUL × SEW = K_eff × (SEW/W)
 
-bits. This row length determines how well each transfer maps onto a memory cacheline. For `SEW` = 32 and a 512-bit (64-byte) cacheline: configuration (a), with `LAMBDA` = 1, transfers at most 8 × 32 = 256 bits per row even at the maximum `LMUL` = 8, filling only half a cacheline; configuration (b), with `LAMBDA` = 2, reaches a full 512-bit line at `LMUL` = 8; and configuration (c), with `LAMBDA` = 4, reaches a full line already at `LMUL` = 4. A `LAMBDA` that is too small can thus leave `vmtl` unable to issue full-cacheline row transfers within the available `LMUL`, wasting bandwidth on partial lines. This gives a lower bound on the useful `LAMBDA` that is independent of, and may exceed, the minimum required for legality.
+bits. This row length determines how well each transfer maps onto a memory cache line. For `SEW` = 32 and a 512-bit (64-byte) cache line: configuration (a), with `LAMBDA` = 1, transfers at most 8 × 32 = 256 bits per row even at the maximum `LMUL` = 8, filling only half a cache line; configuration (b), with `LAMBDA` = 2, reaches a full 512-bit line at `LMUL` = 8; and configuration (c), with `LAMBDA` = 4, reaches a full line already at `LMUL` = 4. A `LAMBDA` that is too small can thus leave `vmtl.v` unable to issue full-cache-line row transfers within the available `LMUL`, wasting bandwidth on partial lines. This gives a lower bound on the useful `LAMBDA` that is independent of, and may exceed, the minimum required for legality.
 
-*Summary of the trade-off.* `LAMBDA` (and thus `EMUL_C`) is selected to balance three competing objectives: high compute intensity and peak throughput, which favour small `LAMBDA` (large C-panel, large `EMUL_C`); bounded multiplier area and power, which favour large `LAMBDA`; and full-cacheline tile loads, which impose a minimum useful `LAMBDA`. The resulting choice must in all cases satisfy the legality constraints of <<ime-emulc-table>>, in particular `EMUL_C` ∈ {1, 2, 4, 8, 16} and the reservation of register groups for the A and B operands.
+*Summary of the tradeoff.* `LAMBDA` (and thus `EMUL_C`) is selected to balance three competing objectives: high compute intensity and peak throughput, which favor small `LAMBDA` (large C-panel, large `EMUL_C`); bounded multiplier area and power, which favor large `LAMBDA`; and full-cache-line tile loads, which impose a minimum useful `LAMBDA`. The resulting choice must in all cases satisfy the legality constraints of <<ime-emulc-table>>, in particular `EMUL_C` ∈ {1, 2, 4, 8, 16} and the reservation of register groups for the A and B operands.
 
-We have introduced the fundamental concepts realted to the geometry of a C ← A × B^T^ + C computation.
+We have introduced the fundamental concepts related to the geometry of a C ← A × B^T^ + C computation.
 We now proceed with a more detailed explanation of the ISA support for controlling and selecting that geometry.
 We also discuss more general configurations, with elements of A and B that are submultiples of `SEW` and with the A and B input tiles also supporting vector register groups of multiplicity > 1.
 
@@ -566,10 +566,10 @@ The effective K-dimension of the multiplication (shared inner dimension of A and
 
     K_eff = `LAMBDA` × W × LMUL.
 
-Where `W` is 1 for non-widening instructions, 2 for 2× widening instructions, 4 for 4× widening instructions, and 8 for 8× widening instructions.
+`W` is 1 for non-widening instructions, 2 for 2× widening instructions, 4 for 4× widening instructions, and 8 for 8× widening instructions.
 
 `LMUL` scales the A and B register groups along the K dimension only and does not affect C.
-This increases the effective K dimension of the tile by a factor of `LMUL`, as shown in  <<ime-tile-lmul-fig>>.
+This increases the effective K dimension of the tile by a factor of `LMUL`, as shown in <<ime-tile-lmul-fig>>.
 The blue arrows indicate the contiguous elements in the vector register groups that form the tiles in the ordering of element-wise 1D vector operations.
 Only integer values of `LMUL` are supported by the Zvvm family of Integrated Matrix extensions: `LMUL` ∈ {1, 2, 4, 8}.
 Fractional LMUL settings (`LMUL` < 1) are reserved.
@@ -896,7 +896,7 @@ configuration, it is retained.
 Otherwise, if the resulting configuration is in the IME-legal domain
 (see <<integrated-matrix-lambda>>), the implementation shall select the
 largest supported nonzero lambda value for that configuration; the
-supported set is non-empty there, so the selection yields a nonzero
+supported set is nonempty there, so the selection yields a nonzero
 value.
 If the resulting configuration is outside the IME-legal domain (no
 nonzero lambda is permissible), `lambda[2:0]` is set to `000`.
@@ -982,15 +982,15 @@ is an integer in {`1`, `2`, `4`, `8`, `16`}.
 
 The _IME-legal configuration domain_ is the set of (`VLEN`,
 `SEW`) for which at least one architecturally permissible nonzero lambda
-exists. Note that lambda = `1` is permissible only when `SEW ≤ VLEN ≤
-16 × SEW`; for `VLEN > 16 × SEW` the minimum permissible lambda is larger
-than `1`, and for `VLEN < SEW` no lambda is permissible (the configuration
-lies outside the IME-legal domain).
+exists. Note that lambda = `1` is permissible only when
+`SEW ≤ VLEN ≤ 16 × SEW`; for `VLEN > 16 × SEW`, the minimum
+permissible lambda is larger than `1`, and for `VLEN < SEW` no lambda is
+permissible (the configuration lies outside the IME-legal domain).
 
 *Implementation requirement.* For every (`VLEN`, `SEW`) in the IME-legal
 configuration domain, an implementation shall support at least one
 architecturally permissible nonzero lambda value. Consequently, within
-that domain the set of supported nonzero lambda values is non-empty,
+that domain the set of supported nonzero lambda values is nonempty,
 `lambda[2:0]` always holds a supported nonzero value after a configuration
 instruction, and `000` is never produced as a selected value.
 
@@ -1039,7 +1039,7 @@ A write of `000` is a preserve-or-initialize request:
   for the resulting configuration; if the configuration is outside the
   IME-legal domain, `lambda[2:0]` is set to `000`.
 
-Within the IME-legal domain the supported set is non-empty, so a `000`
+Within the IME-legal domain the supported set is nonempty, so a `000`
 write results in a supported nonzero selected value.
 
 A nonzero write requests the corresponding lambda value.
@@ -1158,7 +1158,7 @@ For integer multiply-accumulate instructions, `altfmt_A` and `altfmt_B` select w
 ==== Microscaling block size (`bs`)
 
 The `bs` field is a 1-bit read/write field in the `vtype` CSR that selects
-the block size used for microscaling operations (`vm=0`).  When `vm=1`, the
+the block size used for microscaling operations (`vm=0`). When `vm=1`, the
 `bs` field is ignored.
 
 .Block size encoding
@@ -1197,7 +1197,7 @@ image::png/ime-tile-widening.png[align="center"]
 When the input element width is 8 bits or wider (EEW ∈ {8, 16, 32, 64}), the
 elements within the input register group follow standard RISC-V V element
 ordering: element _k_ at width EEW occupies bits
-[_k_ × EEW + EEW − 1 : _k_ × EEW] of the register group.  This is
+[_k_ × EEW + EEW − 1 : _k_ × EEW] of the register group. This is
 identical to the layout produced by a vector load at the same element width
 (e.g., `vle8.v` for EEW=8) and requires no special data preparation beyond
 the tile load itself.
@@ -1217,7 +1217,7 @@ widths: element _k_ at width 4 occupies bits [4__k__ + 3 : 4__k__] of the
 register group, consistent with the formula for all element widths.
 
 Because tile loads operate at SEW (≥ 8 bits), each loaded byte already
-contains a naturally ordered pair of 4-bit elements.  Software preparing
+contains a naturally ordered pair of 4-bit elements. Software preparing
 input data in memory must pack adjacent elements within each byte
 accordingly.
 
@@ -1239,7 +1239,7 @@ C ← C + A~tile~ × B~tile~^T^
 The following table lists the integer matrix tile multiplication instructions. The arguments are:
 
 * `vd`: Destination vector register group containing the row-major architectural C matrix tile.
-* `vs1`: Source vector register group containing the row-major architecture  A matrix tile.
+* `vs1`: Source vector register group containing the row-major architectural A matrix tile.
 * `vs2`: Source vector register group containing the row-major architectural B matrix tile.
 
 [cols="3,1,1,1", options="header", width="70%"]
@@ -1270,10 +1270,10 @@ Otherwise, an illegal-instruction exception is raised.
 
 Matrix multiply-accumulate instructions cannot be interrupted and resumed:
 they require `vstart` = 0 at the start of execution, and if `vstart` is
-non-zero when such an instruction begins, an illegal-instruction exception
+nonzero when such an instruction begins, an illegal-instruction exception
 is raised.
 
-==== Arithmetic Considerations
+==== Arithmetic considerations
 
 ===== Integer accumulation
 
@@ -1359,7 +1359,7 @@ semantics.
 
 Matrix multiply-accumulate instructions cannot be interrupted and resumed:
 they require `vstart` = 0 at the start of execution, and if `vstart` is
-non-zero when such an instruction begins, an illegal-instruction exception
+nonzero when such an instruction begins, an illegal-instruction exception
 is raised.
 
 The floating-point format of each operand tile is controlled by fields in `vtype`:
@@ -1443,18 +1443,18 @@ For 4-bit inputs, only OFP4 (E2M1) is supported (`altfmt_A` = `altfmt_B` = 0).
 The encoding `altfmt_A` = 1 or `altfmt_B` = 1 is _reserved_ for 4-bit inputs.
 
 Likewise, for 8-bit inputs, `altfmt_A` and `altfmt_B` independently select
-E4M3 or E5M2.  All four combinations — including mixed E4M3 × E5M2 — are
+E4M3 or E5M2. All four combinations — including mixed E4M3 × E5M2 — are
 covered by the same OFP8 extension for the given output format and are
 permitted on all four instructions (`vfmmacc.vv`, `vfwmmacc.vv`,
-`vfqmmacc.vv`, `vf8wmmacc.vv`).  Each A × B product is defined by the exact
-mathematical product of the corresponding input values.  Grouping,
+`vfqmmacc.vv`, `vf8wmmacc.vv`). Each A × B product is defined by the exact
+mathematical product of the corresponding input values. Grouping,
 partial-sum formation, optional rounding of partial sums, and final
 accumulation into C follow <<arithmetic-considerations>>.
 
 ===== 16-bit inputs (IEEE binary16, BFloat16)
 
 For 16-bit inputs, `altfmt_A` and `altfmt_B` independently select IEEE
-binary16 or BFloat16.  When both are the same, a single extension
+binary16 or BFloat16. When both are the same, a single extension
 suffices (Zvvfp16mm* for IEEE binary16, Zvvbf16mm* for BFloat16), and all
 three instructions (`vfmmacc.vv`, `vfwmmacc.vv`, `vfqmmacc.vv`) are
 available.
@@ -1463,13 +1463,13 @@ When `altfmt_A ≠ altfmt_B` (one input is IEEE binary16 and the other is
 BFloat16), the mixed combination is permitted on all three instructions
 (`vfmmacc.vv`, `vfwmmacc.vv`, `vfqmmacc.vv`) — the two input formats share
 the same element width, so no additional encoding space or hardware
-extension is required.  Each A × B product is defined by the exact
-mathematical product of the corresponding input values.  Grouping,
+extension is required. Each A × B product is defined by the exact
+mathematical product of the corresponding input values. Grouping,
 partial-sum formation, optional rounding of partial sums, and final
 accumulation into C follow <<arithmetic-considerations>>.
 
 For the mixed cases, _both_ the IEEE binary16 and BFloat16 extensions
-for the same instruction and output format are required.  The instruction
+for the same instruction and output format are required. The instruction
 is legal only when both extensions are present; if either is missing,
 the instruction raises an illegal-instruction exception.
 
@@ -1497,16 +1497,16 @@ Final accumulation into the C accumulator format uses the dynamic rounding mode 
 Any intermediate grouping, partial-sum formation, and optional rounding of partial sums follow <<arithmetic-considerations>>.
 Floating-point exception flags are accumulated into `fflags`.
 
-The K-dimension, tile-dimension formulae, EMUL_C, and instruction-to-widening-factor mapping are the same as for the integer family (see <<zvvmm>>); the floating-point mnemonics are `vfmmacc.vv` (W=1), `vfwmmacc.vv` (W=2), `vfqmmacc.vv` (W=4), and `vf8wmmacc.vv` (W=8).
+The K-dimension, tile-dimension formulas, EMUL_C, and instruction-to-widening-factor mapping are the same as for the integer family (see <<zvvmm>>); the floating-point mnemonics are `vfmmacc.vv` (W=1), `vfwmmacc.vv` (W=2), `vfqmmacc.vv` (W=4), and `vf8wmmacc.vv` (W=8).
 
 As with the integer multiply-accumulate instructions, vector masking is not
-supported.  When `vm=0`, the instruction does not apply a vector mask;
+supported. When `vm=0`, the instruction does not apply a vector mask;
 instead, `v0` supplies paired block-scale factors for microscaling
 (see <<integrated-matrix-microscaling>>).
 
-===== Mixed-format inputs arithmetic considerations
+===== Arithmetic considerations for mixed-format inputs
 
-Whenever mixed formats are used in the computational instructions, one must follow the guidelines in <<arithmetic-considerations>>.
+Mixed-format computational instructions follow the rules in <<arithmetic-considerations>>.
 
 [#arithmetic-considerations]
 ==== Arithmetic considerations
@@ -1552,7 +1552,7 @@ For microscaled instructions, additional microscaling block boundaries apply; se
 `G` must satisfy:
 
 * `G` is a power of two;
-* 1 ≤ `G` ≤ `LAMBDA`.  Since both `LAMBDA` and `G` are powers of two and `1 ≤ G ≤ `LAMBDA``, `G` divides `LAMBDA`.
+* `1 ≤ G ≤ LAMBDA`. Since both `LAMBDA` and `G` are powers of two, `G` divides `LAMBDA`.
 
 * For unscaled instructions, each group contains exactly `G`
   sub-dot-products and therefore defines a dot product of two vectors with
@@ -1627,7 +1627,7 @@ is not practical, `rnd=rto` is generally preferable to `rnd=frm` for
 reducing double-rounding effects.
 ====
 
-Supported values of `G`, `psm`, and `rnd` by an implementation may depend
+The values of `G`, `psm`, and `rnd` supported by an implementation may depend
 on `SEW`, `W`, and `lambda`.
 
 An implementation must disclose all supported combinations by publishing a
@@ -1703,10 +1703,10 @@ determine the numerical result of a `psm=1` implementation.
 The ISA extension defines the shared instruction semantics and the required
 points of implementation disclosure. The implementation-specific SAIL
 fragment completes the architectural description of the implementation's
-chosen `psm=1` behaviour.
+chosen `psm=1` behavior.
 
-The conformance and certification programmes are the venue in which complete
-machine-executable disclosure is checked. A certification programme may
+The conformance and certification programs are the venue in which complete
+machine-executable disclosure is checked. A certification program may
 therefore require a SAIL fragment for each disclosed `psm=1` entry and may
 require that the fragment reproduce the hardware bit-exactly when composed
 with the shared SAIL of this specification.
@@ -1717,8 +1717,8 @@ with the shared SAIL of this specification.
 The SAIL fragment serves three purposes that natural-language disclosure cannot:
 
 . *Unambiguous semantics.* A SAIL definition fixes operand widths, alignment, rounding, ordering, and parameter values without the interpretation overhead of prose.
-. *Direct integration with conformance testing.* The architectural model in this specification is itself SAIL-based; a published implementation fragment plugs into the same model with no glue code, so an architectural test suite can exercise the implementor's own definition of `fp_disclosed_reduce_group` to verify match against hardware.
-. *Reproducible cross-implementation comparison.* Two implementors disclosing nominally the same algorithm can settle disputes by diffing their SAIL fragments rather than re-deriving equivalence from prose.
+. *Direct integration with conformance testing.* The architectural model in this specification is itself SAIL-based; a published implementation fragment plugs into the same model with no glue code, so an architectural test suite can exercise the implementer's own definition of `fp_disclosed_reduce_group` and verify that it matches the hardware.
+. *Reproducible cross-implementation comparison.* Two implementers disclosing nominally the same algorithm can settle disputes by diffing their SAIL fragments rather than re-deriving equivalence from prose.
 
 An implementation that discloses the RISC-V Bulk Normalization Algorithm
 (RVBNA), introduced below, at the standard parameters may satisfy
@@ -1752,22 +1752,22 @@ floating-point multiply is a separate rounding point.
 
 [NOTE]
 ====
-A common choice of `psm=1` reduction is the _RISC-V Bulk Normalization Algorithm_ (RVBNA), defined as part of the Zvdota extension.  An implementation adopting RVBNA discloses it as the `psm=1` algorithm and publishes the standard RVBNA parameters (per-factor significand and biased-exponent widths `p` / `e`, result significand and biased-exponent widths `q` / `f`, and the per-group accumulation count `n`).
+A common choice of `psm=1` reduction is the _RISC-V Bulk Normalization Algorithm_ (RVBNA), defined as part of the Zvdota extension. An implementation adopting RVBNA discloses it as the `psm=1` algorithm and publishes the standard RVBNA parameters (per-factor significand and biased-exponent widths `p` / `e`, result significand and biased-exponent widths `q` / `f`, and the per-group accumulation count `n`).
 For Zvvfmm instructions, the natural binding for a group of actual length
 `g_len` is `n = g_len × W`, with `q`/`f` determined by the output format
 and `p`/`e` by the input format(s). Thus, unscaled and other full-length
 groups use `n = G × W`, while a shortened microscaled group uses the
 corresponding smaller value `n = g_len × W`.
 
-The standard RVBNA description includes a terminal round-to-odd step that produces a value in the result format.  When an implementation discloses RVBNA as its `psm=1` algorithm, that terminal round-to-odd is taken only if it also discloses `rnd=rto` for the same (`SEW`, `W`, `lambda`); otherwise the rounding implied by the disclosed `rnd` value applies in its place.  Most implementations that adopt RVBNA are therefore expected to also disclose `rnd=rto`.
+The standard RVBNA description includes a terminal round-to-odd step that produces a value in the result format. When an implementation discloses RVBNA as its `psm=1` algorithm, that terminal round-to-odd is taken only if it also discloses `rnd=rto` for the same (`SEW`, `W`, `lambda`); otherwise the rounding implied by the disclosed `rnd` value applies in its place. Most implementations that adopt RVBNA are therefore expected to also disclose `rnd=rto`.
 
-Implementations are free to declare any other `psm=1` reduction (for example, a Kulisch-style fixed-point accumulator, or a different bulk-normalised scheme with different parameter choices) provided they publish the algorithm and its parameters as required by the disclosure rule above.
+Implementations are free to declare any other `psm=1` reduction (for example, a Kulisch-style fixed-point accumulator, or a different bulk-normalized scheme with different parameter choices) provided they publish the algorithm and its parameters as required by the disclosure rule above.
 ====
 
 
 [NOTE]
 ====
-A Zvvm implementation can produce the exact same results as the analogous Zvtm implementation when operating on 16- and 8-bit inputs by disclosing `psm=1` with RVBNA at the standard parameters described above, `rnd=rto`, and a suitable architectural value of `G`: `G=2` for 16-bit inputs with 32-bit outputs, and `G=1` for 8-bit inputs with 32-bit outputs.
+A Zvvm implementation can produce exactly the same results as the analogous Zvtm implementation when operating on 16- and 8-bit inputs by disclosing `psm=1` with RVBNA at the standard parameters described above, `rnd=rto`, and a suitable architectural value of `G`: `G=2` for 16-bit inputs with 32-bit outputs, and `G=1` for 8-bit inputs with 32-bit outputs.
 For input element widths of 32 bits or greater, compatibility with the analogous Zvtm instruction is obtained with `G=1`, `psm=0`, and `rnd=frm` so that each group contains a single product and the partial sum `S` is that product rounded according to `frm`.
 
 In a *systolic-array* datapath, `G` is typically 1: each sub-dot-product is rounded and added to C immediately, yielding `LAMBDA` × LMUL rounding additions per output element.
@@ -1912,7 +1912,7 @@ footnote:[Open Compute Project, _OCP Microscaling Formats (MX) v1.0 Spec_,
 https://www.opencompute.org/documents/ocp-microscaling-formats-mx-v1-0-spec-final-pdf])
 represent tensors using narrow per-element values
 (e.g., OFP4 or OFP8) combined with a coarser shared scale factor applied
-to a _block_ of consecutive elements along the K dimension.  The standard
+to a _block_ of consecutive elements along the K dimension. The standard
 OCP MX block size is 32 elements; however, recent research (Lee et al.,
 "MX+: A Robust Framework for Finer-Grained MX Quantization", MICRO '25)
 demonstrates that a block size of 16 significantly improves accuracy for
@@ -1984,13 +1984,13 @@ in <<integrated-matrix-fp-special-values-fflags>>.
 ===== Scale format: E8M0
 
 The scale format is determined by the input data type, not by the
-`v0.scale` mechanism itself.  All MX data types defined by this version of the
+`v0.scale` mechanism itself. All MX data types defined by this version of the
 specification use the E8M0 scale format.
 
 The E8M0 format (as defined by the
 _OCP Microscaling Formats (MX) v1.0 Specification_) is an 8-bit
 exponent-only format with a bias of 127, representing power-of-two values
-from 2^−127^ to 2^127^.  The bit pattern 0xFF encodes NaN.
+from 2^−127^ to 2^127^. The bit pattern 0xFF encodes NaN.
 
 Non-NaN E8M0 scale values denote exact powers of two. Applying such a
 scale to an unbounded or internal floating-point value can be modeled as
@@ -2021,7 +2021,7 @@ The paired-scale multiplication and subsequent block-scale operations
 follow IEEE 754 rules. If one converted scale is +0 and the other is +∞,
 the paired-scale multiplication produces the default NaN and raises the
 invalid-operation flag, even though both encoded E8M0 scales are finite. If
-the paired scale is +∞, multiplying it by a non-zero finite partial sum
+the paired scale is +∞, multiplying it by a nonzero finite partial sum
 yields a signed infinity, while multiplying it by zero produces the default
 NaN. Implementations shall handle these cases as specified, not as
 implementation-defined results.
@@ -2244,13 +2244,13 @@ contents are ignored by the instruction.
 |===
 
 Within each row stride, elements at positions _s_ ∈ [`S_blocks`, R) are padding
-and need not be initialised.  When `S_blocks` = R, the layout is fully packed with
+and need not be initialized. When `S_blocks` = R, the layout is fully packed with
 no padding.
 
 ===== Block size selection
 
 The `bs` field in `vtype` (see <<integrated-matrix-bs>>) selects the
-microscaling block size.  When `bs=0`, the block size is 32 elements
+microscaling block size. When `bs=0`, the block size is 32 elements
 (standard OCP MX); when `bs=1`, the block size is 16 elements.
 
 Let `S_blocks_32` and `S_blocks_16` denote the numbers of active scale
@@ -2345,10 +2345,10 @@ For E8M0 (_sw_ = 8, _pw_ = 16) this reduces to SEW × LAMBDA ≥ 16.
 Configurations where SEW × LAMBDA < _pw_ with `vm=0` raise an
 illegal-instruction exception.
 
-Microscaling is particularly useful with narrow input formats (OFP4, OFP8)
-where the limited dynamic range of the per-element format is compensated by
-the block-level E8M0 exponent, enabling high-throughput inference on
-microscaling-quantised models.
+Microscaling is particularly useful with narrow input formats (OFP4, OFP8),
+whose limited per-element dynamic range is compensated by the block-level
+E8M0 exponent, enabling high-throughput inference on microscaling-quantized
+models.
 
 ===== Loading or constructing E8M0 paired scales
 [NOTE]
@@ -2431,7 +2431,8 @@ If the pre-paired E8M0 tile-strided data is already contiguous in memory (M × R
     vle16.v  v0, (a0)
 ----
 
-This works for all SEW values since M × R = VLEN ÷ _pw_ always (where _pw_ is the scale-pair width).
+This works for all `SEW` values because M × R = VLEN / _pw_ for every
+configuration, where _pw_ is the scale-pair width.
 
 *Options 3–5 — Constructing E8M0 pairs from separate `scale_A` / `scale_B` arrays:*
 
@@ -2541,10 +2542,10 @@ The nonzero instruction-lambda field is checked exactly and is not
 WARL-canonicalized, as specified in
 <<integrated-matrix-tile-ls-legality>>. If the required value is unsupported
 for the temporary configuration, a tile load using that immediate raises an
-illegal-instruction exception and software must use another scale-
-construction strategy. Omitting the instruction-lambda field and relying on
-the dynamically selected `vtype.lambda` value is insufficient unless
-software first establishes and verifies that value, because changing `SEW`
+illegal-instruction exception, and software must use another
+scale-construction strategy. Omitting the instruction-lambda field and
+relying on the dynamically selected `vtype.lambda` value is insufficient
+unless software first establishes and verifies that value, because changing `SEW`
 may replace it and silently change the memory traversal performed by
 `vmtl.v`.
 
@@ -2625,7 +2626,7 @@ interpretation applies only to the storage elements, not to the individual
 packed logical elements.
 
 [#ime-load-store-geometry]
-.Loading a matrix tile from memory for LMUL=1. The matrix is laid out linearly in memory, the leading dimension LD specifies its row size (a) or column size (b). Element indices represent the offset of the elements in memory. Blue arrows indicate the data ordering in memory and in the vector register group.
+.Loading a matrix tile from memory for LMUL=1. The matrix is laid out linearly in memory; the leading dimension `LD` specifies its row size in (a) or column size in (b). Element indices represent element offsets in memory. Blue arrows indicate the data ordering in memory and in the vector register group.
 image::png/ime-load-store-geometry.png[align="center"]
 
 If (rs2) = 0, the leading dimension LD defaults to the _natural dimension_
@@ -2647,7 +2648,7 @@ when VLEN ÷ SEW = LAMBDA² × LMUL.)
 ====
 It is expected that implementations will optimize the case of `rs2 = x0` to load/store a vector register group with contiguous VL elements in memory.
 
-Efficient implementation of tile loads with `rs2 = x0` are essential to high-performance linear algebra kernels.
+Efficient implementations of tile loads with `rs2 = x0` are essential to high-performance linear algebra kernels.
 ====
 
 When using a vector length lower than the maximum for the data width,
@@ -2657,7 +2658,7 @@ of B~tile~^T^ contributes to the corresponding active
 column of C. The impact is sketched in <<ime-load-store-vl>>.
 
 [#ime-load-store-vl]
-.Examples of element distribution for full (left) and reduced vector length matrix tile load / store operations.
+.Examples of element distribution for full and reduced vector-length matrix-tile load/store operations.
 image::png/ime-load-store-vl.png[width="100%"]
 
 ==== Instructions
@@ -2755,10 +2756,10 @@ For each element index `i` in the body `[vstart, VL)` where the mask is enabled:
 
 [NOTE]
 ====
-Order preserving tile load/store with LMUL > 1 offers optimization opportunities. While vmtl/vmts are very similar to vector constant-stride segment operations, the segment sizes are potentially larger.  Matching cache line size with LAMBDA × LMUL × SEW allows for full cacheline transfers.
+Order-preserving tile loads/stores with `LMUL > 1` offer optimization opportunities. Although `vmtl.v` and `vmts.v` are similar to vector constant-stride segment operations, their segment sizes can be larger. Matching the cache-line size to `LAMBDA × LMUL × SEW` enables full-cache-line transfers.
 ====
 [#ime-vmtls-lmul]
-.Order preserving tile load/store with LMUL > 1 for row-major (a) and column-major ordering in memory.
+.Order-preserving tile loads/stores with LMUL > 1 for row-major and column-major memory layouts.
 image::png/ime-vmtls-lmul.png[align="center", width="90%"]
 
 [#zvvmttls,reftext=Transposing load/store instructions for matrix tiles]
@@ -2779,8 +2780,8 @@ multiple logical elements are packed within each storage element, it is
 not a transpose of the individual logical elements.
 
 [#ime-vmttl-fig]
-.Transposing load examples with LMUL = 1 (left) and LMUL = 2 (right). Indices number elements of width SEW from the row-major order matrix in memory. Light-blue arrows indicate the memory / vector register access order.
-image::png/ime-vmttl-lmul.png[width=100%, align=center, alt="Depiction of transposing load with vmttl for LMUL=1 and LMUL=2."]
+.Transposing load examples with LMUL = 1 (left) and LMUL = 2 (right). Indices label SEW-bit elements in the row-major matrix in memory. Light-blue arrows indicate the memory/vector-register access order.
+image::png/ime-vmttl-lmul.png[width=100%, align=center, alt="Depiction of transposing load with vmttl.v for LMUL=1 and LMUL=2."]
 
 ==== Instructions
 
@@ -2908,8 +2909,8 @@ The tile dimensions are fully determined by the current vector configuration:
     N_tile_max = M_tile                 (maximum columns when VL = VL_max)
     EMUL_C      = VLEN / (SEW × LAMBDA²)      (C accumulator register group size)
 
-`M_tile` is fixed by the hardware (`VLEN`) and the chosen `SEW` and `LAMBDA`; it cannot be changed by VL.
-`N_tile` is controlled by the programmer through `VL`; use `vsetvl` to select the largest `N_tile` that fits the remaining columns.
+`M_tile` is fixed by the hardware (`VLEN`) and the chosen `SEW` and `LAMBDA`; it cannot be changed by `VL`.
+`N_tile` is controlled by software through `VL`; use `vsetvl` to select the largest `N_tile` that fits the remaining columns.
 `VL` (set via `vset{i}vl{i}` at `vtype.SEW` equal to the C element width) must be a multiple of LAMBDA × LMUL, so only full columns can be selected.
 
 The C accumulator tile has a fixed physical shape:
@@ -3137,7 +3138,7 @@ For clarity, this example covers configurations with
 described in <<integrated-matrix-m16-c-load-store>>.
 The configuration uses SEW=32, LMUL=1, and `LAMBDA`=4, giving K_eff = 4 and
 M_tile = VLEN/128.
-Matrices A and C are stored row-major; Matrix B is stored column-major, allowing its columns
+Matrices A and C are stored row-major; matrix B is stored column-major, allowing its columns
 to be loaded directly into the column-major register layout of
 B~tile~^T^.
 
@@ -3146,9 +3147,9 @@ B~tile~^T^.
 // C (M×N, row-major, stride ldc) += A_matrix (M×K, row-major, stride lda)
 //                                 × B_matrix (K×N, column-major, stride ldb)
 //
-// Pre-condition: vtype can be configured for SEW=32, LMUL=1, lambda=4.
-// Pre-condition: EMUL_C is one of 1, 2, 4, or 8.
-// Pre-condition: K is a multiple of K_eff (= lambda × LMUL = 4).
+// Precondition: vtype can be configured for SEW=32, LMUL=1, lambda=4.
+// Precondition: EMUL_C is one of 1, 2, 4, or 8.
+// Precondition: K is a multiple of K_eff (= lambda × LMUL = 4).
 // For simplicity, this example assumes M is a multiple of M_tile.
 
 const int lambda     = 4;
@@ -3285,7 +3286,7 @@ Key observations:
 === Software considerations
 
 [#integrated-matrix-intrinsics,reftext="C-language intrinsics"]
-==== C-Language Intrinsics
+==== C-language intrinsics
 
 The IME C-language intrinsics provide portable access to the IME instructions
 without requiring hand-written assembly.
@@ -3310,7 +3311,7 @@ group occupying sixteen consecutive vector registers. It does not
 denote `vtype.LMUL = 16`.
 
 * For multiply-accumulate intrinsics, the register-group multiplier
-encoded in the accumulator type suffix is `EMUL_C` =  `VLEN` ÷ (`SEW` × `LAMBDA`²), which is determined by `VLEN`, `SEW`,
+encoded in the accumulator type suffix is `EMUL_C` = `VLEN` ÷ (`SEW` × `LAMBDA`²), which is determined by `VLEN`, `SEW`,
 and the selected `lambda`, and is _independent_ of `LMUL`.
 
 * A `_lm{N}` qualifier (`N` ∈ {1, 2, 4, 8}) is appended to the
@@ -3525,7 +3526,7 @@ The pair and unpair operations have pure value semantics:
   respectively. The input values are unchanged, and the result does not
   alias either input C-language value.
 
-For values of matching accumulator element type, the following identities
+For values with matching accumulator element types, the following identities
 hold bitwise:
 
 * `__riscv_ime_vunpairlo(__riscv_ime_vpair(lo, hi))` is equal to `lo`.
@@ -3546,7 +3547,7 @@ conversion.
 
 [NOTE]
 ====
-*Compiler-modelling guidance (non-normative).*
+*Compiler-modeling guidance (non-normative).*
 
 A compiler should model the pair and unpair pseudo-intrinsics as pure
 register-group composition and extraction operations:
@@ -3648,7 +3649,7 @@ size_t __riscv_ime_vlen   (void);   /* VLEN in bits */
 size_t __riscv_ime_lambda (void);   /* current selected LAMBDA */
 --
 
-`__riscv_ime_vlen()` returns the architectural VLEN (in bits).  When VLEN is
+`__riscv_ime_vlen()` returns the architectural VLEN (in bits). When VLEN is
 known to the compiler — for example via `-mrvv-vector-bits=zvl` on GCC or
 Clang — the call folds to a load-immediate; otherwise the compiler emits
 `csrr vlenb` followed by a left-shift by 3.
@@ -3733,7 +3734,7 @@ If no supported value is less than or equal to the request, the
 implementation establishes the smallest supported nonzero lambda value.
 
 For a configuration in the IME-legal domain the supported set is
-non-empty, so the established value is a supported nonzero value. For a
+nonempty, so the established value is a supported nonzero value. For a
 configuration outside that domain no nonzero lambda is permissible and
 the established (and returned) value is zero.
 
@@ -3757,7 +3758,7 @@ that only needs to inspect the selected lambda without modifying
 architectural state should use `__riscv_ime_lambda()`.
 
 The set of supported lambda values is a function of (`VLEN`, `SEW`) and
-is non-empty within the IME-legal domain.
+is nonempty within the IME-legal domain.
 A change to `SEW` may cause
 lambda to be retained or replaced by another supported nonzero value. A
 change to `LMUL` alone shall not change lambda.
@@ -3769,7 +3770,7 @@ desired lambda.
 
 [NOTE]
 ====
-*Compiler-modelling guidance (non-normative).*
+*Compiler-modeling guidance (non-normative).*
 
 A compiler should model the lambda query and write intrinsics as follows:
 
@@ -3840,13 +3841,13 @@ __riscv_vsetlambda(saved);
 ----
 ====
 
-===== Tile load and store (Zvvmtls) and transposed tile load and store (Zvvmttls)
+===== Tile load and store (Zvvmtls) and transposing tile load and store (Zvvmttls)
 
 The load intrinsics accept a base pointer, a leading-dimension `ld` in
 elements, and a vector-length `vl`, returning the loaded vector type.
 The store intrinsics accept a base pointer, `ld`, the source vector, and `vl`,
 and return `void`.
-For tile loads and stores the type-suffix encodes LMUL—the register-group
+For tile loads and stores, the type-suffix encodes LMUL—the register-group
 multiplier of the tile operand.
 The table below lists representative `m1` prototypes; replace `m1` with `m2`,
 `m4`, or `m8` as needed, and `i` with `u` for unsigned integer variants where
@@ -4179,7 +4180,7 @@ void __riscv_vmtts_v_i32m1_m (vbool32_t mask, int32_t *base, size_t ld, vint32m1
 --
 
 The `_L{N}` (immediate-lambda) and `_m` (masked) qualifiers are orthogonal
-and may be combined.  `_L{N}` precedes `_m` per the canonical suffix order:
+and may be combined. `_L{N}` precedes `_m` per the canonical suffix order:
 
 [source,c]
 --
@@ -4358,7 +4359,7 @@ and the OFP4 vector type `vfloat4e2m1mX_t` (E2M1), are implementation-defined
 extensions following the V intrinsics naming convention for non-ISO types,
 analogous to `vbfloat16mX_t` for BFloat16.
 The corresponding scalar types (`_Float8E4M3`, `_Float8E5M2`, `_Float4E2M1`)
-are not part of ISO C; once standardised, headers will alias these to the ISO names.
+are not part of ISO C; once standardized, headers will alias them to the ISO names.
 
 For `vfmmacc.vv` (no widening, W=1), accumulator and input tiles share SEW:
 
@@ -4476,7 +4477,7 @@ vbfloat16m4_t __riscv_vfwmmacc_vv(vbfloat16m4_t vd,
 
 The three-token long-form name encodes the accumulator type first (as
 the canonical type-suffix), followed by the A and B input-type suffixes
-in order.  When the accumulator is the default for the given instruction
+in order. When the accumulator is the default for the given instruction
 and SEW (e.g., FP16 for `vfwmmacc.vv` with 8-bit inputs), the two-token
 form is used; the three-token form arises only when the accumulator type
 itself is a non-default selection (e.g., BF16 from `vfwmmacc.vv`).
@@ -4506,10 +4507,10 @@ argument carrying the paired block-scale values (see <<integrated-matrix-microsc
 Two qualifiers in the intrinsic name distinguish them from the unscaled forms:
 
 * `_scaled` — applied to the floating-point widening intrinsics
-  (`vfwmmacc`, `vfqmmacc`, `vf8wmmacc`).  These instructions exist in both
+  (`vfwmmacc`, `vfqmmacc`, `vf8wmmacc`). These instructions exist in both
   unscaled and scaled forms; the qualifier disambiguates.
 * `_bs{N}` (N ∈ {16, 32}) — appended to the type-suffix to select the
-  block size.  This applies to all microscaled intrinsics, including the
+  block size. This applies to all microscaled intrinsics, including the
   integer-input ones (`vfwimmacc`, `vfqimmacc`, `vf8wimmacc`), which
   exist only in the microscaled form and therefore do not carry `_scaled`.
 
@@ -4558,16 +4559,19 @@ vfloat64m4_t __riscv_vf8wimmacc_vv_f64m4_i8m1_bs32(
     vuint16m1_t v0, size_t vl);
 --
 
-The scale-format is implied by the input data type per the encoding maps in
+The scale format is implied by the input data type per the encoding maps in
 <<integrated-matrix-microscaling>>; software does not select the scale
 format separately.
 
 ===== VLEN-portable code
 
-Because EMUL_C = VLEN / (SEW × LAMBDA²), the accumulator register-group multiplier
-varies across implementations with different values of VLEN and LAMBDA, even for a fixed SEW tied to an output type.
-The type suffix in a long-form multiply-accumulate intrinsic name directly encodes EMUL_C, whereas in an overloaded name that EMUL_C is implicit.
-Either way, source code with IME intrinsics is tied to a specific combination of input/output types and value of EMUL_C.
+Because `EMUL_C = VLEN / (SEW × LAMBDA²)`, the accumulator register-group
+multiplier varies across implementations with different `VLEN` and `LAMBDA`
+values, even for a fixed `SEW` tied to an output type.
+The type suffix in a long-form multiply-accumulate intrinsic name directly
+encodes `EMUL_C`, whereas an overloaded name leaves `EMUL_C` implicit.
+Either way, source code with IME intrinsics is tied to a specific
+combination of input and output types and an `EMUL_C` value.
 
 [NOTE]
 ====
@@ -4579,9 +4583,13 @@ externally visible function interfaces, except through
 implementation-defined compiler conventions.
 ====
 
-Although it is possible to write more general assembly code, it is common industry practice to favor coding with compiler intrinsics.
-The recommended approach for writing portable code with IME intrinsics is to package multiple code paths in the same executable, each optimized for a specific value of EMUL_C.
-Runtime selection of the appropriate code path is then performed based on the result of `vsetvl` and computations of EMUL_C = VLEN / (SEW × LAMBDA²).
+Although more general assembly code is possible, industry practice commonly
+favors compiler intrinsics.
+The recommended approach for writing portable code with IME intrinsics is to
+package multiple code paths in the same executable, each optimized for a
+specific `EMUL_C` value.
+The appropriate code path is then selected at run time based on the result of
+`vsetvl` and the computed value of `EMUL_C = VLEN / (SEW × LAMBDA²)`.
 
 ==== Encoding-map legality overview
 
@@ -4610,7 +4618,7 @@ illegal-instruction exception.
 [#integrated-matrix-insns,reftext="Instructions (in alphabetical order)"]
 === Instructions (in alphabetical order)
 
-The semantics of each instruction is expressed in a SAIL-like syntax, using the following
+The semantics of each instruction are expressed in a SAIL-like syntax, using the following
 helper functions that are shared across all instructions in this chapter:
 
 [source,sail]
@@ -4810,12 +4818,12 @@ function mat_C_idx(i : int, j : int, N_max : int,
 // fp_add(acc  : bits(EEW), prod : bits(EEW),
 //        EEW  : int,       fmt  : fp_fmt,
 //        rm   : rounding_mode) -> bits(EEW)
-//   Add prod to acc, both in format fmt at width EEW, rounded per rm.  Updates fflags.
+//   Add prod to acc, both in format fmt at width EEW, rounded per rm. Updates fflags.
 
 // fp_mul(a : bits(EEW), b : bits(EEW),
 //        EEW : int,     fmt : fp_fmt,
 //        rm  : rounding_mode) -> bits(EEW)
-//   Multiply a by b, both in format fmt at width EEW, rounded per rm.  Updates fflags.
+//   Multiply a by b, both in format fmt at width EEW, rounded per rm. Updates fflags.
 
 // fp_one(EEW : int, fmt : fp_fmt) -> bits(EEW)
 //   Return the bit pattern for +1.0 in the given format.
@@ -4833,7 +4841,7 @@ fp_defaultNaN(EEW : int, fmt : fp_fmt) -> bits(EEW)
 
 // scale_width_of(sfmt : scale_format) -> int
 //   Return the width in bits of a single scale value for the given format.
-//   E8M0 → 8.  This version defines no other scale width.
+//   E8M0 → 8. This version defines no other scale width.
 function scale_width_of(sfmt : scale_format) -> int =
   match sfmt {
     E8M0 => 8
@@ -4852,7 +4860,7 @@ decode_scale(scale : bits(sw), scale_fmt : scale_format,
 
 int_to_fp(x : int, EEW : int, fmt : fp_fmt, rm : rounding_mode) -> bits(EEW)
 //   Convert a mathematical integer x to the nearest representable value in
-//   format fmt at width EEW, rounded per rm.  Updates fflags.
+//   format fmt at width EEW, rounded per rm. Updates fflags.
 
 // ─── Shared GEMM helpers ───────────────────────────────────────────────
 
@@ -4935,14 +4943,14 @@ val fp_internal_add : (fp_internal, fp_internal) -> fp_internal
 
 // Non-exact bulk reduction (psm=1). The implementation chooses the
 // reduction algorithm and discloses it; common choices include RVBNA,
-// other bulk-normalised fixed-point schemes, and Kulisch-style
+// other bulk-normalized fixed-point schemes, and Kulisch-style
 // accumulators.
 //
 // The entire group of exact products is presented at once, as a list,
 // rather than folded pairwise. A pairwise fold cannot express a bulk
-// normalisation -- such as RVBNA, the flagship psm=1 algorithm -- which
+// normalization -- such as RVBNA, the flagship psm=1 algorithm -- which
 // aligns and sums all g_len x W terms together with a single terminal
-// normalisation. fmt_A and fmt_B give the input formats, and fmt_C gives the C
+// normalization. fmt_A and fmt_B give the input formats, and fmt_C gives the C
 // accumulator format. These formats provide the significand and exponent
 // widths, and any other format-dependent parameters, that the disclosed
 // algorithm may need. g_len and W give the term count (g_len x W).
@@ -5016,8 +5024,8 @@ function fp_group_sum(i : int, j : int,
 
     PSM_DISCLOSED => {
       // Gather the group's exact products, then reduce them in a single
-      // bulk operation so that a disclosed bulk-normalisation algorithm
-      // (e.g. RVBNA) can normalise all terms together. The loop visits k in
+      // bulk operation so that a disclosed bulk-normalization algorithm
+      // (e.g. RVBNA) can normalize all terms together. The loop visits k in
       // increasing order and prepends each product, so prods_rev is reversed
       // once before invoking the disclosed reduction.
       var prods_rev : list(fp_internal) = [||];
@@ -5450,7 +5458,7 @@ Accumulation is modular (wraps at 2^SEW^).
 Only SEW ∈ {32, 64} is valid (giving EEW = 4 or 8); SEW ∈ {8, 16} is _reserved_.
 
 Exceptions::
-_Illegal Instruction_ is raised if any of the following conditions holds:
+_Illegal Instruction_ is raised if any of the following conditions hold:
 +
 * `vstart` ≠ 0.
 * SEW < 32 (EEW = SEW÷8 would be sub-nibble).
@@ -5541,13 +5549,13 @@ Floating-point exception flags accumulate in `fflags`.
 +
 When `vm=0` (`v0.scale`), the register `v0` supplies paired block-scale
 factors for microscaling; the scale format is determined by the input data
-type (see <<integrated-matrix-microscaling>>).  The `bs` field in `vtype`
+type (see <<integrated-matrix-microscaling>>). The `bs` field in `vtype`
 selects the block size (32 or 16 elements).
 +
 Only SEW ∈ {32, 64} is valid (giving EEW = 4 or 8); SEW ∈ {8, 16} is _reserved_.
 
 Exceptions::
-_Illegal Instruction_ is raised if any of the following conditions holds:
+_Illegal Instruction_ is raised if any of the following conditions hold:
 +
 * `vstart` ≠ 0.
 * SEW < 32 (EEW = SEW÷8 would be sub-nibble).
@@ -5644,7 +5652,7 @@ and accumulates T into _vd_: C ← C + T.
 +
 _vs1_ is interpreted as the M × K~eff~ tile A~tile~ in row-major register layout, and _vs2_ is interpreted as the K~eff~ × N tile B~tile~^T^ in column-major register layout,
 and _vd_ as an M×M physical accumulator tile (row-major register
-layout), of which only the first N columns are active.  All three tiles have elements of width SEW.
+layout), of which only the first N columns are active. All three tiles have elements of width SEW.
 +
 K_effective = LAMBDA × LMUL.
 `VL` selects how many columns of B~tile~^T^, and therefore how many columns of C, are active; VL must be a multiple of LAMBDA × LMUL.
@@ -5660,7 +5668,7 @@ Microscaling (`vm=0`) is not supported for non-widening floating-point
 multiply-accumulate; `vm=0` is _reserved_.
 
 Exceptions::
-_Illegal Instruction_ is raised if any of the following conditions holds:
+_Illegal Instruction_ is raised if any of the following conditions hold:
 +
 * `vstart` ≠ 0.
 * `vm` = 0 (_reserved_).
@@ -5753,14 +5761,14 @@ Floating-point exception flags accumulate in `fflags`.
 +
 When `vm=0` (`v0.scale`), the register `v0` supplies paired block-scale
 factors for microscaling; the scale format is determined by the input data
-type (see <<integrated-matrix-microscaling>>).  The `bs` field in `vtype`
+type (see <<integrated-matrix-microscaling>>). The `bs` field in `vtype`
 selects the block size (32 or 16 elements).
 Only `SEW ∈ {16, 32, 64}` is valid, giving
 `EEW = SEW ÷ 4 ∈ {4, 8, 16}`.
 `SEW = 8`, which would imply `EEW = 2`, is _reserved_.
 
 Exceptions::
-_Illegal Instruction_ is raised if any of the following conditions holds:
+_Illegal Instruction_ is raised if any of the following conditions hold:
 +
 * `vstart` ≠ 0.
 * `SEW = 8` (`EEW = SEW ÷ 4 = 2` is reserved).
@@ -5875,11 +5883,11 @@ Floating-point exception flags accumulate in `fflags`.
 +
 When `vm=0` (`v0.scale`), the register `v0` supplies paired block-scale
 factors for microscaling; the scale format is determined by the input data
-type (see <<integrated-matrix-microscaling>>).  The `bs` field in `vtype`
+type (see <<integrated-matrix-microscaling>>). The `bs` field in `vtype`
 selects the block size (32 or 16 elements).
 
 Exceptions::
-_Illegal Instruction_ is raised if any of the following conditions holds:
+_Illegal Instruction_ is raised if any of the following conditions hold:
 +
 * `vstart` ≠ 0.
 * VL is not a multiple of LAMBDA × LMUL.
@@ -5964,7 +5972,7 @@ Encoding::
 ....
 
 NOTE: This instruction shares its opcode with `vwmmacc.vv`; `vm=0` selects
-the integer-input FP-accumulate MX form.  `vwmmacc.vv` requires `vm=1`.
+the integer-input FP-accumulate MX form. `vwmmacc.vv` requires `vm=1`.
 
 Description::
 Interpreting _vs1_ as A~tile~ and _vs2_ as
@@ -5995,7 +6003,7 @@ The `bs` field in `vtype` selects the block size (32 or 16 elements).
 The encodings SEW=8 (EEW=4, Int4 inputs into OFP8 accumulator), SEW=32, and SEW=64 are _reserved_.
 
 Exceptions::
-_Illegal Instruction_ is raised if any of the following conditions holds:
+_Illegal Instruction_ is raised if any of the following conditions hold:
 +
 * `vstart` ≠ 0.
 * SEW = 8 (reserved encoding).
@@ -6083,7 +6091,7 @@ Encoding::
 ....
 
 NOTE: This instruction shares its opcode with `v8wmmacc.vv`; `vm=0` selects
-the integer-input FP-accumulate MX form.  `v8wmmacc.vv` requires `vm=1`.
+the integer-input FP-accumulate MX form. `v8wmmacc.vv` requires `vm=1`.
 
 Description::
 Interpreting _vs1_ as A~tile~ and _vs2_ as
@@ -6114,7 +6122,7 @@ The `bs` field in `vtype` selects the block size (32 or 16 elements).
 Only SEW ∈ {32, 64} is valid; SEW ∈ {8, 16} is _reserved_.
 
 Exceptions::
-_Illegal Instruction_ is raised if any of the following conditions holds:
+_Illegal Instruction_ is raised if any of the following conditions hold:
 +
 * `vstart` ≠ 0.
 * SEW < 32 (reserved encoding).
@@ -6197,7 +6205,7 @@ Encoding::
 ....
 
 NOTE: This instruction shares its opcode with `vqmmacc.vv`; `vm=0` selects
-the integer-input FP-accumulate MX form.  `vqmmacc.vv` requires `vm=1`.
+the integer-input FP-accumulate MX form. `vqmmacc.vv` requires `vm=1`.
 
 Description::
 Interpreting _vs1_ as A~tile~ and _vs2_ as
@@ -6228,7 +6236,7 @@ The `bs` field in `vtype` selects the block size (32 or 16 elements).
 The encodings SEW=8 (EEW=2), altfmt=1 with SEW=32, and SEW=64 are _reserved_.
 
 Exceptions::
-_Illegal Instruction_ is raised if any of the following conditions holds:
+_Illegal Instruction_ is raised if any of the following conditions hold:
 +
 * `vstart` ≠ 0.
 * SEW = 8 (reserved encoding).
@@ -6325,7 +6333,7 @@ and accumulates T into _vd_: C ← C + T.
 +
 _vs1_ is interpreted as the M × K~eff~ tile A~tile~ in row-major register layout, and _vs2_ is interpreted as the K~eff~ × N tile B~tile~^T^ in column-major register layout,
 and _vd_ as an M×M physical accumulator tile (row-major register
-layout), of which only the first N columns are active.  All three tiles have elements of width SEW.
+layout), of which only the first N columns are active. All three tiles have elements of width SEW.
 +
 K_effective = LAMBDA × LMUL.
 `VL` selects how many columns of B~tile~^T^, and therefore how many columns of C, are active; VL must be a multiple of LAMBDA × LMUL.
@@ -6335,7 +6343,7 @@ The signedness of each input operand is selected by `altfmt_A` and `altfmt_B` in
 Accumulation is modular (wraps at 2^SEW^).
 
 Exceptions::
-_Illegal Instruction_ is raised if any of the following conditions holds:
+_Illegal Instruction_ is raised if any of the following conditions hold:
 +
 * `vstart` ≠ 0.
 * `vm` = 0 (_reserved_).
@@ -6425,7 +6433,7 @@ Exceptions::
 The instruction raises the standard vector memory exceptions for active
 elements.
 +
-_Illegal Instruction_ is raised if any of the following conditions holds:
+_Illegal Instruction_ is raised if any of the following conditions hold:
 +
 * `vtype.vlmul` does not encode LMUL in {1, 2, 4, 8}.
 * No effective lambda is selected.
@@ -6564,7 +6572,7 @@ Exceptions::
 The instruction raises the standard vector memory exceptions for active
 elements.
 +
-_Illegal Instruction_ is raised if any of the following conditions holds:
+_Illegal Instruction_ is raised if any of the following conditions hold:
 +
 * `vtype.vlmul` does not encode LMUL in {1, 2, 4, 8}.
 * No effective lambda is selected.
@@ -6721,7 +6729,7 @@ Exceptions::
 The instruction raises the standard vector memory exceptions for active
 elements.
 +
-_Illegal Instruction_ is raised if any of the following conditions holds:
+_Illegal Instruction_ is raised if any of the following conditions hold:
 +
 * `vtype.vlmul` does not encode LMUL in {1, 2, 4, 8}.
 * No effective lambda is selected.
@@ -6867,7 +6875,7 @@ Exceptions::
 The instruction raises the standard vector memory exceptions for active
 elements.
 +
-_Illegal Instruction_ is raised if any of the following conditions holds:
+_Illegal Instruction_ is raised if any of the following conditions hold:
 +
 * `vtype.vlmul` does not encode LMUL in {1, 2, 4, 8}.
 * No effective lambda is selected.
@@ -7013,7 +7021,7 @@ Only `SEW ∈ {16, 32, 64}` is valid, giving
 `SEW = 8`, which would imply `EEW = 2`, is _reserved_.
 
 Exceptions::
-_Illegal Instruction_ is raised if any of the following conditions holds:
+_Illegal Instruction_ is raised if any of the following conditions hold:
 +
 * `vstart` ≠ 0.
 * `SEW = 8` (`EEW = SEW ÷ 4 = 2` is reserved).
@@ -7100,7 +7108,7 @@ The signedness of each input operand is selected by `altfmt_A` and `altfmt_B` in
 Accumulation is modular (wraps at 2^SEW^).
 
 Exceptions::
-_Illegal Instruction_ is raised if any of the following conditions holds:
+_Illegal Instruction_ is raised if any of the following conditions hold:
 +
 * `vstart` ≠ 0.
 * VL is not a multiple of LAMBDA × LMUL.
@@ -7139,7 +7147,7 @@ Included in::
 
 
 [#mx-extensions-section]
-=== Microscaling Subextensions
+=== Microscaling subextensions
 
 Each microscaling extension enables the `vm=0` / `v0.scale` encoding for
 a specific (input format, accumulator format, block size) combination.
@@ -7367,7 +7375,7 @@ Implementation of the extension or extensions named in the unscaled
 `altfmt_A` and `altfmt_B` select signed (0) or unsigned (1) interpretation; the accumulator is always signed.
 `altfmt` is unused for ordinary integer accumulation.
 
-For the ordinary integer forms listed in this table, `vm=1`.  For `vmmacc.vv`, `vm=0` is _reserved_.
+For the ordinary integer forms listed in this table, `vm=1`. For `vmmacc.vv`, `vm=0` is _reserved_.
 
 For `vwmmacc.vv`, `vqmmacc.vv`, and `v8wmmacc.vv`, `vm=0` is separately defined as `vfwimmacc.vv`, `vfqimmacc.vv`, and
 `vf8wimmacc.vv`, respectively (integer inputs, FP accumulator, microscaling); see <<tbl-intmx-encoding-map>>.
