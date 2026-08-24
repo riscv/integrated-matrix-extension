@@ -113,7 +113,7 @@ selected element width `SEW`, a single vector register contains
 elements, of each row fragment held in one vector register. The tile
 height is then
 
-    M = (`VLEN`/`SEW`) ÷ `LAMBDA`.
+    M = (VLEN/SEW) ÷ LAMBDA.
 
 The IM extension imposes two more restrictions on `LAMBDA`. (An additional third restriction will be introduced later.)
 First, `LAMBDA`, and consequently `M`, must be a power of 2 ≥ 1.
@@ -159,7 +159,7 @@ greater than or equal to 1.
 If `L` is a perfect square (an even power of two), the architecturally
 permissible values of `LAMBDA` are the members of
 
-    {`L`^½^, `L`^½^ / 2, `L`^½^ / 4}
+    {L½, L½ / 2, L½ / 4}
 
 that are integer powers of two greater than or equal to 1. These values
 correspond to `EMUL_C` ∈ {`1`, `4`, `16`}.
@@ -167,7 +167,7 @@ correspond to `EMUL_C` ∈ {`1`, `4`, `16`}.
 If `L` is two times a perfect square (an odd power of two), the
 architecturally permissible values of `LAMBDA` are the members of
 
-    {(`L` / 2)^½^, (`L` / 2)^½^ / 2}
+    {(L / 2)½, (L / 2)½ / 2}
 
 that are integer powers of two greater than or equal to 1. These values
 correspond to `EMUL_C` ∈ {`2`, `8`}.
@@ -564,7 +564,7 @@ image::png/ime-geometry.png[width=100%, align=center, alt="Diagram of matrix til
 
 The effective K-dimension of the multiplication (shared inner dimension of A and B^T^) is determined by `LAMBDA` from `vtype`, scaled by a per-instruction widening factor `W` and further multiplied by `LMUL`:
 
-    K_eff = `LAMBDA` × W × LMUL.
+    K_eff = LAMBDA × W × LMUL.
 
 `W` is 1 for non-widening instructions, 2 for 2× widening instructions, 4 for 4× widening instructions, and 8 for 8× widening instructions.
 
@@ -2043,8 +2043,8 @@ index `s`, the scalar K interval covered by the block is:
 The computation is also defined as repeated `LMUL=1` steps, in increasing
 register-index order. For `LMUL=1` step `step`, the scalar K interval is:
 
-    step_k_lo = step × `LAMBDA` × W
-    step_k_hi = step_k_lo + `LAMBDA` × W - 1
+    step_k_lo = step × LAMBDA × W
+    step_k_hi = step_k_lo + LAMBDA × W - 1
 
 For each output element, the instruction processes the intersection of the
 current microscaling block and the current `LMUL=1` step:
@@ -2173,7 +2173,7 @@ The paired-scale layout is provisioned for the fixed physical tile
 dimensions. It contains `M` row strides of `R` _pw_-bit elements, where
 `N_max` is the maximum B~tile~^T^/C column count and
 
-    M = N_max = VLEN / (SEW × `LAMBDA`).
+    M = N_max = VLEN / (SEW × LAMBDA).
 
 For an operation with active column count `N`, only the `scale_B` fields
 whose row-stride index _m_ satisfies `0 ≤ m < N` are active. The `scale_B`
@@ -2184,8 +2184,8 @@ changed when `N < M`.
 Because
 
     M × R
-      = (VLEN / (SEW × `LAMBDA`))
-        × (`LAMBDA` × SEW / _pw_)
+      = (VLEN / (SEW × LAMBDA))
+        × (LAMBDA × SEW / _pw_)
       = VLEN / _pw_,
 
 the physical paired-scale layout occupies exactly one vector register,
