@@ -4255,6 +4255,9 @@ function tile_reg_idx(i : int, LMUL : int, lambda : int, elems_per_reg : int) ->
   regoff * elems_per_reg + elementoff
 }
 
+// A/B indices and epr are measured in input elements (EEW_A = SEW / W).
+// Pass lambda * W to these helpers: each register holds lambda * W input
+// elements per tile row. C continues to use the unscaled lambda.
 // A[i, k] in vs1: A is stored row-major (rows are the outer dimension).
 function mat_A_idx(i : int, k : int, K_eff : int,
                    LMUL : int, lambda : int, epr : int) -> int =
@@ -4457,8 +4460,8 @@ function fp_group_sum(i : int, j : int,
     PSM_EXACT => {
       var S : fp_internal = fp_internal_zero();
       foreach (k from k_lo to k_hi) {
-        let a_flat : int = mat_A_idx(i, k, g.K_eff, g.LMUL, g.lambda, g.epr_A);
-        let b_flat : int = mat_B_idx(k, j, g.K_eff, g.LMUL, g.lambda, g.epr_A);
+        let a_flat : int = mat_A_idx(i, k, g.K_eff, g.LMUL, g.lambda * g.W, g.epr_A);
+        let b_flat : int = mat_B_idx(k, j, g.K_eff, g.LMUL, g.lambda * g.W, g.epr_A);
 
         let a_bits : bits(g.EEW_A) = read_single_element(g.EEW_A, a_flat, vs1);
         let b_bits : bits(g.EEW_A) = read_single_element(g.EEW_A, b_flat, vs2);
@@ -4476,8 +4479,8 @@ function fp_group_sum(i : int, j : int,
       // order-independent, so the list order is unspecified.
       var prods : list(fp_internal) = [||];
       foreach (k from k_lo to k_hi) {
-        let a_flat : int = mat_A_idx(i, k, g.K_eff, g.LMUL, g.lambda, g.epr_A);
-        let b_flat : int = mat_B_idx(k, j, g.K_eff, g.LMUL, g.lambda, g.epr_A);
+        let a_flat : int = mat_A_idx(i, k, g.K_eff, g.LMUL, g.lambda * g.W, g.epr_A);
+        let b_flat : int = mat_B_idx(k, j, g.K_eff, g.LMUL, g.lambda * g.W, g.epr_A);
 
         let a_bits : bits(g.EEW_A) = read_single_element(g.EEW_A, a_flat, vs1);
         let b_bits : bits(g.EEW_A) = read_single_element(g.EEW_A, b_flat, vs2);
@@ -4576,8 +4579,8 @@ function int_block_dot(i : int, j : int, k_lo : int, k_hi : int,
                        vs1 : regidx, vs2 : regidx) -> int = {
   var int_sum : int = 0;
   foreach (k from k_lo to k_hi) {
-    let a_flat : int = mat_A_idx(i, k, g.K_eff, g.LMUL, g.lambda, g.epr_A);
-    let b_flat : int = mat_B_idx(k, j, g.K_eff, g.LMUL, g.lambda, g.epr_A);
+    let a_flat : int = mat_A_idx(i, k, g.K_eff, g.LMUL, g.lambda * g.W, g.epr_A);
+    let b_flat : int = mat_B_idx(k, j, g.K_eff, g.LMUL, g.lambda * g.W, g.epr_A);
     let a_val  : int = if signed_A
                        then signed(read_single_element(g.EEW_A, a_flat, vs1))
                        else unsigned(read_single_element(g.EEW_A, a_flat, vs1));
