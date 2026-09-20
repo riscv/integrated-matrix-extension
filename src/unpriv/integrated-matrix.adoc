@@ -211,16 +211,19 @@ the value of `EMUL_C`. The example specializes exhaustively along the
 `EMUL_C` dimension; it does not imply that functional portability requires
 five separate implementations.
 
-Arguments `A` and `B` are the input matrices. The result C is accumulated
-in vector registers `v16` through `v31`. Arguments `M`, `N`, and `K`
-define the shape of the matrix multiply, following BLAS convention.
+Arguments `A` and `B` point to input panels already packed for the nonzero
+`LAMBDA` specified by `requested_lambda`. The result C is accumulated in
+vector registers `v16` through `v31`. Arguments `M`, `N`, and `K` define
+the shape of the matrix multiply, following BLAS convention.
 
-The `requested_lambda` argument is a semantic `LAMBDA` request in
-{`0`, `1`, `2`, `4`, `8`, `16`, `32`, `64`}. After establishing `SEW=64`
-and `LMUL=1`, the routine submits that request through
-`__riscv_vsetlambda` and uses the returned selected value for all geometry,
-loop-step, address, and dispatch calculations. A zero request invokes the
-preserve-or-initialize rule. The value `L = VLEN/SEW` is derived from
+The `requested_lambda` argument is the exact semantic `LAMBDA` value used
+to pack both panels and must be in {`1`, `2`, `4`, `8`, `16`, `32`, `64`}.
+After establishing `SEW=64` and `LMUL=1`, the routine submits that request
+through `__riscv_vsetlambda` and checks that the returned selected value
+equals `requested_lambda` before proceeding. It uses this verified value
+for all geometry, loop-step, address, and dispatch calculations. A zero
+request is not permitted by this microkernel because it does not specify a
+packing geometry. The value `L = VLEN/SEW` is derived from
 `__riscv_ime_vlen()` rather than supplied by the caller.
 
 Although many concepts will only be introduced later, the example
@@ -246,8 +249,9 @@ void microdgemm
 {
     vsetvli(5, 0, 64, 1, true, true);                 // <1>
 
+    assert(requested_lambda != 0);
     size_t lambda = __riscv_vsetlambda(requested_lambda);
-    assert(lambda != 0);                              // <2>
+    assert(lambda == requested_lambda);               // <2>
 
     size_t L = __riscv_ime_vlen() / 64;               // <3>
     assert(0 == L % (lambda * lambda));
@@ -352,12 +356,12 @@ void microdgemm
 <1> The double-precision microkernel first establishes `SEW=64` and
     `LMUL=1`. Because this operation may change `SEW`, it may replace a
     previously selected `LAMBDA`.
-<2> `requested_lambda` is assumed to be in the valid intrinsic domain and
-    is submitted only after the required `SEW` has been established. A zero
-    request is permitted and invokes the preserve-or-initialize rule. The
-    returned `lambda` is the actual selected value after WARL processing and
-    is used throughout the microkernel. A zero return indicates that no
-    nonzero value could be selected for the configuration.
+<2> `requested_lambda` is assumed to be a valid nonzero semantic `LAMBDA`
+    value and is the value used to pack both input panels. It is submitted
+    only after the required `SEW` has been established. The assertions reject
+    a zero request and require the returned `lambda` to equal the requested
+    value. A different selected value, including zero, does not satisfy the
+    kernel's packing requirement.
 <3> `L` is computed from the architectural VLEN after establishing
     `SEW=64`; it is not trusted as a caller-supplied geometry value.
 <4> The assertions verify that the selected `LAMBDA` produces an integral
@@ -377,14 +381,18 @@ void microdgemm
 <11> With `EMUL_C=1`, the output is decomposed into a 4-by-4 array of
     single-register C tiles.
 
-The example is adaptable: it accepts the supported nonzero `LAMBDA`
-selected after WARL processing and dispatches using that returned value.
-Software whose A and B panel packing or kernel contract requires an exact
-nonzero `LAMBDA` cannot silently accept canonicalization. It must compare
-the returned `lambda` with `requested_lambda` and select an appropriately
-packed panel, another kernel, or a fallback when they differ. A zero request
-intentionally invokes preserve-or-initialize behavior and therefore does
-not name an exact nonzero value.
+The five-way dispatch selects a microkernel organization for the verified
+packing geometry; it does not repack the input panels. Although
+`__riscv_vsetlambda` may canonicalize an unsupported request, this kernel
+cannot proceed with the existing panels when the returned `lambda` differs
+from `requested_lambda`. Software must instead select compatible packed
+panels, repack for a supported geometry, use a suitable fallback, or report
+failure before executing the microkernel's input loads and computations.
+
+The assertions express the preconditions of this illustrative code. In a
+production implementation, these preconditions must also be enforced when
+assertions are disabled, either by explicit runtime checks or by a caller
+that has already established and verified them.
 
 The geometries and register configurations for the five microkernel versions are illustrated in <<ime-portable-microkernel>>.
 In all versions, 16 vector registers are used to store accumulator tiles.
