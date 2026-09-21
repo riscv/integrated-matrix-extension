@@ -211,17 +211,20 @@ the value of `EMUL_C`. The example specializes exhaustively along the
 `EMUL_C` dimension; it does not imply that functional portability requires
 five separate implementations.
 
-Arguments `A` and `B` are the input matrices. The result C is accumulated
-in vector registers `v16` through `v31`. Arguments `M`, `N`, and `K`
-define the shape of the matrix multiply, following BLAS convention.
+Arguments `A` and `B` point to input panels already packed for the nonzero
+`LAMBDA` specified by `requested_lambda`. The result C is accumulated in
+vector registers `v16` through `v31`. Arguments `M`, `N`, and `K` define
+the shape of the matrix multiply, following BLAS convention.
 
-The `requested_lambda` argument is a semantic `LAMBDA` request in
-{`0`, `1`, `2`, `4`, `8`, `16`, `32`, `64`}. After establishing `SEW=64`
-and `LMUL=1`, the routine submits that request through
-`__riscv_vsetlambda` and uses the returned selected value for all geometry,
-loop-step, address, and dispatch calculations. A zero request invokes the
-preserve-or-initialize rule. The value `L = VLEN/SEW` is derived from
-`__riscv_ime_vlen()` rather than supplied by the caller.
+The `requested_lambda` argument is the exact semantic `LAMBDA` value used
+to pack both panels and must be in {`1`, `2`, `4`, `8`, `16`, `32`, `64`}.
+After establishing `SEW=64` and `LMUL=1`, the routine submits that request
+through `+__riscv_vsetlambda+` and checks that the returned selected value
+equals `requested_lambda` before proceeding. It uses this verified value
+for all geometry, loop-step, address, and dispatch calculations. A zero
+request is not permitted by this microkernel because it does not specify a
+packing geometry. The value `L = VLEN/SEW` is derived from
+`+__riscv_ime_vlen()+` rather than supplied by the caller.
 
 Although many concepts will only be introduced later, the example
 illustrates the general approach to low-overhead runtime specialization.
@@ -246,8 +249,9 @@ void microdgemm
 {
     vsetvli(5, 0, 64, 1, true, true);                 // <1>
 
+    assert(requested_lambda != 0);
     size_t lambda = __riscv_vsetlambda(requested_lambda);
-    assert(lambda != 0);                              // <2>
+    assert(lambda == requested_lambda);               // <2>
 
     size_t L = __riscv_ime_vlen() / 64;               // <3>
     assert(0 == L % (lambda * lambda));
@@ -352,12 +356,12 @@ void microdgemm
 <1> The double-precision microkernel first establishes `SEW=64` and
     `LMUL=1`. Because this operation may change `SEW`, it may replace a
     previously selected `LAMBDA`.
-<2> `requested_lambda` is assumed to be in the valid intrinsic domain and
-    is submitted only after the required `SEW` has been established. A zero
-    request is permitted and invokes the preserve-or-initialize rule. The
-    returned `lambda` is the actual selected value after WARL processing and
-    is used throughout the microkernel. A zero return indicates that no
-    nonzero value could be selected for the configuration.
+<2> `requested_lambda` is assumed to be a valid nonzero semantic `LAMBDA`
+    value and is the value used to pack both input panels. It is submitted
+    only after the required `SEW` has been established. The assertions reject
+    a zero request and require the returned `lambda` to equal the requested
+    value. A different selected value, including zero, does not satisfy the
+    kernel's packing requirement.
 <3> `L` is computed from the architectural VLEN after establishing
     `SEW=64`; it is not trusted as a caller-supplied geometry value.
 <4> The assertions verify that the selected `LAMBDA` produces an integral
@@ -377,14 +381,18 @@ void microdgemm
 <11> With `EMUL_C=1`, the output is decomposed into a 4-by-4 array of
     single-register C tiles.
 
-The example is adaptable: it accepts the supported nonzero `LAMBDA`
-selected after WARL processing and dispatches using that returned value.
-Software whose A and B panel packing or kernel contract requires an exact
-nonzero `LAMBDA` cannot silently accept canonicalization. It must compare
-the returned `lambda` with `requested_lambda` and select an appropriately
-packed panel, another kernel, or a fallback when they differ. A zero request
-intentionally invokes preserve-or-initialize behavior and therefore does
-not name an exact nonzero value.
+The five-way dispatch selects a microkernel organization for the verified
+packing geometry; it does not repack the input panels. Although
+`__riscv_vsetlambda` may canonicalize an unsupported request, this kernel
+cannot proceed with the existing panels when the returned `lambda` differs
+from `requested_lambda`. Software must instead select compatible packed
+panels, repack for a supported geometry, use a suitable fallback, or report
+failure before executing the microkernel's input loads and computations.
+
+The assertions express the preconditions of this illustrative code. In a
+production implementation, these preconditions must also be enforced when
+assertions are disabled, either by explicit runtime checks or by a caller
+that has already established and verified them.
 
 The geometries and register configurations for the five microkernel versions are illustrated in <<ime-portable-microkernel>>.
 In all versions, 16 vector registers are used to store accumulator tiles.
@@ -417,6 +425,280 @@ and two B input tiles for each microkernel iteration. Eight matrix multiply-accu
 Finally, in the `EMUL_C=1` specialization, the output-register space is
 organized into a 4-by-4 array of single-register accumulator tiles.
 Four A input tiles and four B input tiles are loaded in each iteration, and 16 matrix multiply-accumulate instructions are used to update the result.
+
+[#integrated-matrix-intrinsic-microkernel]
+==== Companion microkernel using IME and RVV intrinsics
+
+<<microdgemm-intrinsics-example>> expresses the five microkernel
+organizations in <<microdgemm-example>> using only C, IME intrinsics, and
+ordinary RVV intrinsics. The original mixed assembly/intrinsic listing is
+retained. Both listings use the same packed A/B panel layout, K-loop step,
+input pointer advances, and accumulator-tile organization.
+
+The SEW-qualified selector `__riscv_vsetlambda_e64`, defined in
+<<integrated-matrix-sew-lambda-selection>>, returns a supported `LAMBDA`
+for software dispatch. The returned value must equal the nonzero
+`requested_lambda` used to pack A and B. It is not a persistent hardware
+configuration on which subsequent intrinsic calls rely. Each computational
+intrinsic determines its required geometry from its accumulator type and
+the execution-time `VLEN`, as specified in
+<<integrated-matrix-intrinsic-compute-geometry>>.
+
+The additional argument `C` points to writable storage for `16 × L`
+doubles, where `L = VLEN/64`. The kernel starts its accumulators at positive
+zero and overwrites this workspace; it does not load or add an existing C
+matrix. `C` receives a packed intermediate result, not the final application
+matrix. Subsequent software must copy or unpack these tiles into that
+matrix, applying any required final layout or accumulation operation.
+
+Each physical accumulator tile has `T × T` elements, where `T = L/lambda`,
+and occupies `EMUL_C × L` consecutive doubles in the workspace. Within a
+tile, elements are row-major. Across tiles, the tile-row index varies
+fastest: `c00`, `c10`, and so on, followed by `c01`, `c11`, and so on. This
+matches the ascending accumulator-register-group order in
+<<microdgemm-example>>, without assigning fixed registers to C variables.
+
+.Intrinsic microkernel output organization
+[cols="1,1,1,3", options="header"]
+|===
+|EMUL_C |Tile rows |Tile columns |Packed tile order
+|16 |1 |1 |`c00` (stored as two `m8` halves)
+|8 |2 |1 |`c00`, `c10`
+|4 |2 |2 |`c00`, `c10`, `c01`, `c11`
+|2 |4 |2 |`c00`, `c10`, `c20`, `c30`, then `c01` through `c31`
+|1 |4 |4 |`c00` through `c30`, then `c01` through `c31`, and so on
+|===
+
+For the full-block interpretation of `M` and `N`, they equal the number of
+tile rows times `T` and the number of tile columns times `T`, respectively.
+The caller supplies panels packed for the execution-time `VLEN` and the
+requested `LAMBDA`, with sufficient accessible storage for all illustrated
+loads. This example does not handle arbitrary edge tiles. Its C workspace
+must not overlap the input panels. As in the original listing, the
+assertions express preconditions that production code must enforce even
+when assertions are disabled.
+
+The listing assumes that an IME-capable toolchain provides the IME types
+and intrinsic declarations defined in <<integrated-matrix-intrinsics>> in
+addition to the ordinary RVV declarations. Vector variables are individually
+named; physical register allocation is left to the compiler.
+
+[#microdgemm-intrinsics-example]
+.Double-precision GEMM microkernel using IME and RVV intrinsics, with packed output
+[source,c,linenums]
+----
+#include <assert.h>
+#include <stddef.h>
+#include <riscv_vector.h>
+
+/* Requires the IME types and intrinsics specified in this chapter. */
+void microdgemm_intrinsics
+(
+    size_t        K,
+    const double *A,
+    const double *B,
+    double       *C,
+    size_t        M,
+    size_t        N,
+    size_t        requested_lambda
+)
+{
+    /* Both input panels were packed for this exact nonzero LAMBDA. */
+    const size_t lambda = __riscv_vsetlambda_e64(requested_lambda);
+    assert(lambda == requested_lambda);                                 // <1>
+
+    const size_t L = __riscv_ime_vlen() / 64;
+    assert(L != 0 && L % (lambda * lambda) == 0);
+    const size_t emul_c = L / (lambda * lambda);
+    assert(emul_c == 1 || emul_c == 2 || emul_c == 4 || emul_c == 8 || emul_c == 16);
+    assert(K % lambda == 0);                                            // <2>
+
+    /* C has space for 16 * L doubles in packed accumulator-tile order. */
+    if (emul_c == 16) {
+        const size_t stepA = M * lambda;
+        const size_t stepB = N * lambda;
+        vfloat64m8_t  zero8 = __riscv_vfmv_v_f_f64m8(0.0, 8 * L);
+        vfloat64m16_t c00   = __riscv_ime_vpair_f64m16(zero8, zero8);   // <3>
+
+        for (size_t k = 0; k < K; k += lambda) {
+            vfloat64m1_t a0 = __riscv_vle64_v_f64m1(A, L);  A += stepA;
+            vfloat64m1_t b0 = __riscv_vle64_v_f64m1(B, L);  B += stepB;
+            c00 = __riscv_vfmmacc_vv_f64m16(c00, a0, b0, L);
+        }
+
+        vfloat64m8_t lo = __riscv_ime_vunpairlo_f64m16(c00);
+        vfloat64m8_t hi = __riscv_ime_vunpairhi_f64m16(c00);
+        __riscv_vse64_v_f64m8(C        , lo, 8 * L);
+        __riscv_vse64_v_f64m8(C + 8 * L, hi, 8 * L);                    // <5>
+    } else if (emul_c == 8) {
+        const size_t stepA = M/2 * lambda;
+        const size_t stepB = N * lambda;
+        vfloat64m8_t c00 = __riscv_vfmv_v_f_f64m8(0.0, 8 * L);          // <4>
+        vfloat64m8_t c10 = __riscv_vfmv_v_f_f64m8(0.0, 8 * L);
+
+        for (size_t k = 0; k < K; k += lambda) {
+            vfloat64m1_t a0 = __riscv_vle64_v_f64m1(A, L);  A += stepA;
+            vfloat64m1_t b0 = __riscv_vle64_v_f64m1(B, L);  B += stepB;
+            c00 = __riscv_vfmmacc_vv_f64m8(c00, a0, b0, L);
+            vfloat64m1_t a1 = __riscv_vle64_v_f64m1(A, L);  A += stepA;
+            c10 = __riscv_vfmmacc_vv_f64m8(c10, a1, b0, L);
+        }
+
+        __riscv_vse64_v_f64m8(C        , c00, 8 * L);
+        __riscv_vse64_v_f64m8(C + 8 * L, c10, 8 * L);
+    } else if (emul_c == 4) {
+        const size_t stepA = M/2 * lambda;
+        const size_t stepB = N/2 * lambda;
+        vfloat64m4_t c00 = __riscv_vfmv_v_f_f64m4(0.0, 4 * L);
+        vfloat64m4_t c10 = __riscv_vfmv_v_f_f64m4(0.0, 4 * L);
+        vfloat64m4_t c01 = __riscv_vfmv_v_f_f64m4(0.0, 4 * L);
+        vfloat64m4_t c11 = __riscv_vfmv_v_f_f64m4(0.0, 4 * L);
+
+        for (size_t k = 0; k < K; k += lambda) {
+            vfloat64m1_t a0 = __riscv_vle64_v_f64m1(A, L);  A += stepA;
+            vfloat64m1_t b0 = __riscv_vle64_v_f64m1(B, L);  B += stepB;
+            c00 = __riscv_vfmmacc_vv_f64m4(c00, a0, b0, L);
+            vfloat64m1_t a1 = __riscv_vle64_v_f64m1(A, L);  A += stepA;
+            c10 = __riscv_vfmmacc_vv_f64m4(c10, a1, b0, L);
+            vfloat64m1_t b1 = __riscv_vle64_v_f64m1(B, L);  B += stepB;
+            c01 = __riscv_vfmmacc_vv_f64m4(c01, a0, b1, L);
+            c11 = __riscv_vfmmacc_vv_f64m4(c11, a1, b1, L);
+        }
+
+        __riscv_vse64_v_f64m4(C         , c00, 4 * L);
+        __riscv_vse64_v_f64m4(C +  4 * L, c10, 4 * L);
+        __riscv_vse64_v_f64m4(C +  8 * L, c01, 4 * L);
+        __riscv_vse64_v_f64m4(C + 12 * L, c11, 4 * L);
+    } else if (emul_c == 2) {
+        const size_t stepA = M/4 * lambda;
+        const size_t stepB = N/2 * lambda;
+        vfloat64m2_t c00 = __riscv_vfmv_v_f_f64m2(0.0, 2 * L);
+        vfloat64m2_t c10 = __riscv_vfmv_v_f_f64m2(0.0, 2 * L);
+        vfloat64m2_t c20 = __riscv_vfmv_v_f_f64m2(0.0, 2 * L);
+        vfloat64m2_t c30 = __riscv_vfmv_v_f_f64m2(0.0, 2 * L);
+        vfloat64m2_t c01 = __riscv_vfmv_v_f_f64m2(0.0, 2 * L);
+        vfloat64m2_t c11 = __riscv_vfmv_v_f_f64m2(0.0, 2 * L);
+        vfloat64m2_t c21 = __riscv_vfmv_v_f_f64m2(0.0, 2 * L);
+        vfloat64m2_t c31 = __riscv_vfmv_v_f_f64m2(0.0, 2 * L);
+
+        for (size_t k = 0; k < K; k += lambda) {
+            vfloat64m1_t a0 = __riscv_vle64_v_f64m1(A, L);  A += stepA;
+            vfloat64m1_t b0 = __riscv_vle64_v_f64m1(B, L);  B += stepB;
+            c00 = __riscv_vfmmacc_vv_f64m2(c00, a0, b0, L);
+            vfloat64m1_t a1 = __riscv_vle64_v_f64m1(A, L);  A += stepA;
+            c10 = __riscv_vfmmacc_vv_f64m2(c10, a1, b0, L);
+            vfloat64m1_t a2 = __riscv_vle64_v_f64m1(A, L);  A += stepA;
+            c20 = __riscv_vfmmacc_vv_f64m2(c20, a2, b0, L);
+            vfloat64m1_t a3 = __riscv_vle64_v_f64m1(A, L);  A += stepA;
+            c30 = __riscv_vfmmacc_vv_f64m2(c30, a3, b0, L);
+            vfloat64m1_t b1 = __riscv_vle64_v_f64m1(B, L);  B += stepB;
+            c01 = __riscv_vfmmacc_vv_f64m2(c01, a0, b1, L);
+            c11 = __riscv_vfmmacc_vv_f64m2(c11, a1, b1, L);
+            c21 = __riscv_vfmmacc_vv_f64m2(c21, a2, b1, L);
+            c31 = __riscv_vfmmacc_vv_f64m2(c31, a3, b1, L);
+        }
+
+        __riscv_vse64_v_f64m2(C         , c00, 2 * L);
+        __riscv_vse64_v_f64m2(C +  2 * L, c10, 2 * L);
+        __riscv_vse64_v_f64m2(C +  4 * L, c20, 2 * L);
+        __riscv_vse64_v_f64m2(C +  6 * L, c30, 2 * L);
+        __riscv_vse64_v_f64m2(C +  8 * L, c01, 2 * L);
+        __riscv_vse64_v_f64m2(C + 10 * L, c11, 2 * L);
+        __riscv_vse64_v_f64m2(C + 12 * L, c21, 2 * L);
+        __riscv_vse64_v_f64m2(C + 14 * L, c31, 2 * L);
+    } else if (emul_c == 1) {
+        const size_t stepA = M/4 * lambda;
+        const size_t stepB = N/4 * lambda;
+        vfloat64m1_t c00 = __riscv_vfmv_v_f_f64m1(0.0, L);
+        vfloat64m1_t c10 = __riscv_vfmv_v_f_f64m1(0.0, L);
+        vfloat64m1_t c20 = __riscv_vfmv_v_f_f64m1(0.0, L);
+        vfloat64m1_t c30 = __riscv_vfmv_v_f_f64m1(0.0, L);
+        vfloat64m1_t c01 = __riscv_vfmv_v_f_f64m1(0.0, L);
+        vfloat64m1_t c11 = __riscv_vfmv_v_f_f64m1(0.0, L);
+        vfloat64m1_t c21 = __riscv_vfmv_v_f_f64m1(0.0, L);
+        vfloat64m1_t c31 = __riscv_vfmv_v_f_f64m1(0.0, L);
+        vfloat64m1_t c02 = __riscv_vfmv_v_f_f64m1(0.0, L);
+        vfloat64m1_t c12 = __riscv_vfmv_v_f_f64m1(0.0, L);
+        vfloat64m1_t c22 = __riscv_vfmv_v_f_f64m1(0.0, L);
+        vfloat64m1_t c32 = __riscv_vfmv_v_f_f64m1(0.0, L);
+        vfloat64m1_t c03 = __riscv_vfmv_v_f_f64m1(0.0, L);
+        vfloat64m1_t c13 = __riscv_vfmv_v_f_f64m1(0.0, L);
+        vfloat64m1_t c23 = __riscv_vfmv_v_f_f64m1(0.0, L);
+        vfloat64m1_t c33 = __riscv_vfmv_v_f_f64m1(0.0, L);
+
+        for (size_t k = 0; k < K; k += lambda) {
+            vfloat64m1_t a0 = __riscv_vle64_v_f64m1(A, L);  A += stepA;
+            vfloat64m1_t b0 = __riscv_vle64_v_f64m1(B, L);  B += stepB;
+            c00 = __riscv_vfmmacc_vv_f64m1(c00, a0, b0, L);
+            vfloat64m1_t a1 = __riscv_vle64_v_f64m1(A, L);  A += stepA;
+            c10 = __riscv_vfmmacc_vv_f64m1(c10, a1, b0, L);
+            vfloat64m1_t a2 = __riscv_vle64_v_f64m1(A, L);  A += stepA;
+            c20 = __riscv_vfmmacc_vv_f64m1(c20, a2, b0, L);
+            vfloat64m1_t a3 = __riscv_vle64_v_f64m1(A, L);  A += stepA;
+            c30 = __riscv_vfmmacc_vv_f64m1(c30, a3, b0, L);
+            vfloat64m1_t b1 = __riscv_vle64_v_f64m1(B, L);  B += stepB;
+            c01 = __riscv_vfmmacc_vv_f64m1(c01, a0, b1, L);
+            c11 = __riscv_vfmmacc_vv_f64m1(c11, a1, b1, L);
+            c21 = __riscv_vfmmacc_vv_f64m1(c21, a2, b1, L);
+            c31 = __riscv_vfmmacc_vv_f64m1(c31, a3, b1, L);
+            vfloat64m1_t b2 = __riscv_vle64_v_f64m1(B, L);  B += stepB;
+            c02 = __riscv_vfmmacc_vv_f64m1(c02, a0, b2, L);
+            c12 = __riscv_vfmmacc_vv_f64m1(c12, a1, b2, L);
+            c22 = __riscv_vfmmacc_vv_f64m1(c22, a2, b2, L);
+            c32 = __riscv_vfmmacc_vv_f64m1(c32, a3, b2, L);
+            vfloat64m1_t b3 = __riscv_vle64_v_f64m1(B, L);  B += stepB;
+            c03 = __riscv_vfmmacc_vv_f64m1(c03, a0, b3, L);
+            c13 = __riscv_vfmmacc_vv_f64m1(c13, a1, b3, L);
+            c23 = __riscv_vfmmacc_vv_f64m1(c23, a2, b3, L);
+            c33 = __riscv_vfmmacc_vv_f64m1(c33, a3, b3, L);
+        }
+
+        __riscv_vse64_v_f64m1(C         , c00, L);
+        __riscv_vse64_v_f64m1(C +  1 * L, c10, L);
+        __riscv_vse64_v_f64m1(C +  2 * L, c20, L);
+        __riscv_vse64_v_f64m1(C +  3 * L, c30, L);
+        __riscv_vse64_v_f64m1(C +  4 * L, c01, L);
+        __riscv_vse64_v_f64m1(C +  5 * L, c11, L);
+        __riscv_vse64_v_f64m1(C +  6 * L, c21, L);
+        __riscv_vse64_v_f64m1(C +  7 * L, c31, L);
+        __riscv_vse64_v_f64m1(C +  8 * L, c02, L);
+        __riscv_vse64_v_f64m1(C +  9 * L, c12, L);
+        __riscv_vse64_v_f64m1(C + 10 * L, c22, L);
+        __riscv_vse64_v_f64m1(C + 11 * L, c32, L);
+        __riscv_vse64_v_f64m1(C + 12 * L, c03, L);
+        __riscv_vse64_v_f64m1(C + 13 * L, c13, L);
+        __riscv_vse64_v_f64m1(C + 14 * L, c23, L);
+        __riscv_vse64_v_f64m1(C + 15 * L, c33, L);
+    }
+}
+----
+<1> The SEW-qualified selector evaluates support for `SEW=64` independently
+    of the incoming vector configuration. The exact-match assertion enforces
+    the input-panel packing contract; a different selected value cannot be
+    used with these panels.
+<2> `L` is the number of FP64 elements in one vector register. Loads of the
+    `m1` A/B operands and all matrix operations use `vl=L`, so the full
+    physical C columns are active. `EMUL_C` selects the typed branch; each
+    matrix intrinsic supplies its own required `LAMBDA` through that type.
+<3> An `m16` accumulator is constructed from two fully initialized `m8`
+    values. No ordinary RVV `m16` initialization intrinsic is assumed.
+    Pairing and unpairing use the value semantics defined in
+    <<integrated-matrix-ime-m16-pairing>>; register moves may be eliminated
+    when allocation and liveness permit, but this is not guaranteed.
+<4> An ordinary RVV initialization or store of an `mX` accumulator uses
+    `X × L` elements, not the matrix instruction's `vl=L`. This initializes
+    or stores the entire physical accumulator tile. All lengths in this
+    example are at most the relevant operation's VLMAX.
+<5> The `m16` value is split into low and high `m8` halves before storing.
+    Together the stores write `16 × L` doubles. The other branches write
+    the same total number in the packed tile order described above.
+
+The inner loops retain the original input reuse and issue the same matrix
+operations for each K step. The stores are outside the loops. Actual
+instruction scheduling, register allocation, configuration-instruction
+placement, and elimination of redundant initialization or register moves
+are compiler decisions; this listing does not promise the exact physical
+register assignments or instruction counts of the assembly-oriented example.
 
 ==== Implementation support choices for tile geometry (`LAMBDA` and `EMUL_C`)
 
@@ -3373,6 +3655,43 @@ The optional `_as_e{S}` qualifier is defined in
 `_L{N}` immediate-lambda qualifier precedes `_m`, and `_m` always
 appears last.
 
+[#integrated-matrix-intrinsic-compute-geometry]
+===== Geometry of computational intrinsics
+
+For an IME multiply-accumulate intrinsic, the accumulator element width
+defines `SEW`, and the accumulator register-group multiplier defines
+`EMUL_C`. Together with the execution-time `VLEN`, these determine the
+required positive `LAMBDA` through
+
+    EMUL_C = VLEN / (SEW × LAMBDA²).
+
+The required value shall be an encodable, architecturally permissible,
+implementation-supported nonzero `LAMBDA`. All other legality requirements
+for the operation also apply. The compiler shall arrange for each operation
+to execute with that geometry. The intrinsic does not depend on a selected
+`LAMBDA` left by a preceding configuration intrinsic or vector operation,
+and a different geometry shall not be silently substituted because a
+configuration write canonicalizes an unsupported request.
+
+This rule applies to long-form and overloaded computational intrinsics,
+including microscaled forms. The A/B types and any `_lm{N}` qualifier
+continue to specify the input `LMUL`; they do not change the `LAMBDA`
+required by the accumulator type. The same intrinsic type combination may
+require different `LAMBDA` values on implementations with different `VLEN`.
+
+Software may use the SEW-qualified selectors in
+<<integrated-matrix-sew-lambda-selection>> to choose a supported typed
+specialization. A selector call is not required before every computational
+intrinsic, nor does this rule require a support-probing sequence before every
+operation. It is the program's responsibility to execute only supported
+specializations; the compiler may reuse a suitable hardware configuration
+whenever doing so preserves the intrinsic's semantics.
+
+This inference is specific to computational intrinsics. The register-group
+multiplier in a tile load/store intrinsic describes its `LMUL`, not an
+accumulator `EMUL_C`; the tile load/store lambda-selection rules remain
+separate and are not changed by this paragraph.
+
 [#integrated-matrix-ime-m16-types]
 ===== IME-only `m16` accumulator types
 
@@ -3841,55 +4160,236 @@ __riscv_vsetlambda(saved);
 ----
 ====
 
+[#integrated-matrix-sew-lambda-selection]
+===== Selecting lambda for an explicit SEW
+
+The following non-instruction intrinsics select a supported geometry for
+software dispatch without depending on the incoming vector configuration:
+
+[source,c]
+----
+size_t __riscv_vsetlambda_e8 (size_t requested_lambda);
+size_t __riscv_vsetlambda_e16(size_t requested_lambda);
+size_t __riscv_vsetlambda_e32(size_t requested_lambda);
+size_t __riscv_vsetlambda_e64(size_t requested_lambda);
+----
+
+In `__riscv_vsetlambda_e{S}`, the suffix supplies the architectural `SEW=S`
+for which support is evaluated. For a computational intrinsic this is the
+accumulator width, not a narrower packed input element width. No input
+`LMUL` qualifier is needed: the supported nonzero `LAMBDA` set is a function
+of (`VLEN`, `SEW`) and is independent of `LMUL`.
+
+`requested_lambda` is a semantic value in
+{`0`, `1`, `2`, `4`, `8`, `16`, `32`, `64`}, not a raw field encoding. A
+compiler shall diagnose an out-of-domain argument when its value is known
+at compile time. An out-of-domain runtime argument has undefined behavior,
+as for the retained unsuffixed form.
+
+Let `P_S` be the implementation-supported set of nonzero `LAMBDA` values
+for the execution-time (`VLEN`, `SEW=S`) configuration. Selection is defined
+as follows:
+
+* If `P_S` is empty, return zero.
+* If `requested_lambda` is zero and `P_S` is nonempty, return the largest
+  member of `P_S`, independently of any previously selected `LAMBDA`.
+* If a nonzero `requested_lambda` is a member of `P_S`, return that value.
+* Otherwise, return the largest member of `P_S` no greater than the nonzero
+  request; if no such member exists, return the smallest member of `P_S`.
+
+Thus, zero requests have a _largest-supported-value_ meaning for these
+SEW-qualified forms, not the preserve-or-initialize meaning of
+`__riscv_vsetlambda(0)`. The nonzero-request algorithm is the same selection
+algorithm as the architectural WARL rule, but evaluated for the explicit
+`SEW` rather than an ambient `vtype` setting. A returned zero denotes the
+absence of a supported nonzero geometry, not a geometry that can be used
+for a matrix computation. The selector is not a general probe for the
+presence of the Vector or IME instruction sets, and it does not establish
+support for a particular arithmetic format or instruction variant.
+
+These intrinsics return scalar selections. They do not establish a
+persistent `SEW`, `LAMBDA`, `vl`, `LMUL`, or tail/mask policy on which
+subsequent intrinsic calls may rely, and they do not promise to preserve
+those hardware configuration fields. They do not modify live vector
+values, application memory, or the floating-point environment. Each
+computational intrinsic independently determines its required geometry as
+described in <<integrated-matrix-intrinsic-compute-geometry>>.
+
+For fixed execution-time `VLEN` and supported sets, identical suffixes and
+requests shall return identical selections regardless of the intervening
+vector operations. An implementation may use a temporary configuration and
+readback to discover support, or compute the answer from known target
+information. Such probing and its configuration effects are implementation
+details; they shall not alter the values or required behavior of surrounding
+intrinsic operations. In particular, a zero request cannot be implemented
+by relying only on a preserve-or-initialize write of zero to the existing
+hardware field, because that could retain a smaller supported value.
+
+The unsuffixed `__riscv_vsetlambda` and `__riscv_ime_lambda` retain their
+existing current-state-dependent contracts. They are not aliases of the
+SEW-qualified selectors. Software shall not infer their input state or
+query results from a preceding SEW-qualified selector call. In particular,
+a preceding ordinary RVV `vsetvl` or `vsetvlmax` intrinsic is not a promise
+that the physical `SEW` equals the width in its name.
+
+[NOTE]
+====
+*Compiler-modeling guidance (non-normative).*
+
+Model a SEW-qualified selector as producing a scalar result from its
+argument, explicit SEW, execution-time VLEN, and implementation-supported
+set. It has no incoming dependence on a programmer-maintained selected
+lambda and does not define a persistent lambda mode for later computational
+intrinsics. When target information proves the answer, the compiler may
+fold the result; otherwise, it must obtain the execution-time answer.
+Repeated calls may be combined when their relevant implementation
+properties are unchanged, and a valid call with an unused result need not
+emit a probing sequence. Any configuration changes used for probing are
+handled internally by the backend, consistently with surrounding operations.
+
+For a multiply-accumulate intrinsic, record the geometry requirement implied
+by the accumulator SEW, `EMUL_C`, and execution-time VLEN, along with the
+input `LMUL`, formats, vector length, and any microscaling qualifiers. The
+backend establishes that operation's required configuration independently
+of earlier selector calls. Ordinary value, memory, and floating-point
+semantics continue to constrain optimization and scheduling.
+====
+
 ===== Tile load and store (Zvvmtls) and transposing tile load and store (Zvvmttls)
 
 The load intrinsics accept a base pointer, a leading-dimension `ld` in
-elements, and a vector-length `vl`, returning the loaded vector type.
-The store intrinsics accept a base pointer, `ld`, the source vector, and `vl`,
-and return `void`.
-For tile loads and stores, the type-suffix encodes LMUL—the register-group
-multiplier of the tile operand.
-The table below lists representative `m1` prototypes; replace `m1` with `m2`,
-`m4`, or `m8` as needed, and `i` with `u` for unsigned integer variants where
-such variants are defined.
+storage elements, and a final vector-length `vl`, returning the loaded vector
+type. The store intrinsics also accept the source vector and return `void`.
+Forms without an `_L{N}` qualifier require an explicit `size_t lambda`
+argument immediately before the final `size_t vl` argument. The `_L{N}`
+forms specify the exact nonzero `LAMBDA` in the intrinsic name and do not
+take a `lambda` argument. Neither family relies on a `LAMBDA` left by an
+earlier selector or vector operation.
+
+For tile loads and stores, the type-suffix encodes `LMUL`, the register-group
+multiplier of the tile operand, not an accumulator `EMUL_C`. The storage
+`SEW` is determined by the natural storage width of the logical type or by
+an explicit `_as_e{S}` qualifier, as described below. These properties do
+not determine a unique `LAMBDA` for a generic tile transfer.
+
+[#integrated-matrix-runtime-lambda-load-store,reftext="Runtime lambda for tile load/store intrinsics"]
+*Runtime lambda for tile load/store intrinsics*
+
+The `lambda` argument specifies the exact semantic `LAMBDA` for that call,
+not a raw three-bit field encoding or a preferred geometry. Its domain is
+{`1`, `2`, `4`, `8`, `16`, `32`, `64`}. Zero is not permitted: it does not
+mean preserve a previous selection, initialize a selection, or select the
+largest supported value. This differs from the zero-request conventions of
+the lambda-selection intrinsics.
+
+The argument may be a compile-time constant or a runtime scalar value.
+The program shall supply an in-domain value that is architecturally
+permissible and implementation-supported for the execution-time (`VLEN`,
+storage `SEW`) configuration. All other legality requirements in
+<<integrated-matrix-tile-ls-legality>> also apply. In particular, the vector
+length used by the transfer shall be a multiple of `lambda * LMUL`.
+For an `_as_e{S}` form, support and legality are evaluated with `SEW=S`,
+not with the narrower logical element width.
+
+These are caller preconditions, as is the supported-geometry requirement
+for computational intrinsics. The runtime-lambda forms are not support
+queries and do not define a clamping, fallback, or checked-error interface.
+A compiler shall diagnose an out-of-domain argument when its value is known
+at compile time and may diagnose a geometry proved unsupported for the
+compilation target. If a runtime call violates these domain or support
+preconditions, the C interface does not guarantee a diagnostic or a
+particular trap. This does not change the ISA legality rules or the
+existing exception contract of the `_L{N}` forms.
+
+For calls satisfying these preconditions, the compiler shall arrange for
+the transfer to use the exact `lambda` argument. A different value shall
+not be substituted because a configuration write canonicalizes a request.
+The address calculation and register ordering use
+
+    linesize = lambda * LMUL
+
+in the corresponding instruction definition. The `ld=0` natural-dimension
+convention is evaluated using this same exact value; it does not infer
+`lambda`. Masking, storage-element units, and the distinction between
+order-preserving and transposing transfers remain unchanged.
+
+The explicit argument is required by every runtime-lambda tile load/store
+form, including masked forms, storage-width-qualified forms, and applicable
+overloaded short forms. It remains immediately before `vl`; a mask remains
+the first argument, and a store's source vector precedes `lambda`. No
+implicit-state overload omitting `lambda` is defined for these runtime forms.
+Overload resolution does not derive `lambda` from the vector type or from a
+subsequent use of the loaded value.
+
+A SEW-qualified selector may supply the scalar value, but its returned
+value must be passed explicitly to the transfer. Software whose memory
+layout requires an exact requested geometry must verify that the selector
+returned that value before using the existing data. No selector call is
+required when the program has already established the exact supported value.
+The load/store call does not establish or promise to preserve a hardware
+configuration on which subsequent intrinsic calls may rely.
+
+[NOTE]
+====
+*Compiler-modeling guidance (non-normative).*
+
+Keep `lambda` as an explicit operand of the transfer in the intermediate
+representation: it affects both the addresses accessed and the ordering of
+the transferred elements. Record it together with the base pointer, `ld`,
+storage `SEW`, `LMUL`, vector length, optional mask, and store data.
+It is not merely a configuration hint.
+
+The backend may use a nonzero instruction-lambda immediate when the value
+is known, or establish the exact value in `vtype.lambda` at the required
+storage `SEW` before issuing a dynamic-lambda instruction. It may reuse a
+suitable configuration when doing so preserves the operation's semantics.
+No incoming programmer-maintained lambda state is required. The compiler
+need not emit a support probe before every operation when the program
+satisfies the stated preconditions. These lowering choices add no ISA
+operand and do not alter architectural WARL or exception behavior.
+====
+
+The following declarations show representative runtime-lambda `m1`
+prototypes; replace `m1` with `m2`, `m4`, or `m8` as needed, and `i` with
+`u` for unsigned integer variants where such variants are defined.
 
 [source,c]
 --
 /* vmtl.v — order-preserving tile load */
-vint8m1_t    __riscv_vmtl_v_i8m1  (const int8_t   *base, size_t ld, size_t vl);
-vint16m1_t   __riscv_vmtl_v_i16m1 (const int16_t  *base, size_t ld, size_t vl);
-vint32m1_t   __riscv_vmtl_v_i32m1 (const int32_t  *base, size_t ld, size_t vl);
-vint64m1_t   __riscv_vmtl_v_i64m1 (const int64_t  *base, size_t ld, size_t vl);
-vfloat16m1_t __riscv_vmtl_v_f16m1 (const _Float16 *base, size_t ld, size_t vl);
-vfloat32m1_t __riscv_vmtl_v_f32m1 (const float    *base, size_t ld, size_t vl);
-vfloat64m1_t __riscv_vmtl_v_f64m1 (const double   *base, size_t ld, size_t vl);
+vint8m1_t    __riscv_vmtl_v_i8m1  (const int8_t   *base, size_t ld, size_t lambda, size_t vl);
+vint16m1_t   __riscv_vmtl_v_i16m1 (const int16_t  *base, size_t ld, size_t lambda, size_t vl);
+vint32m1_t   __riscv_vmtl_v_i32m1 (const int32_t  *base, size_t ld, size_t lambda, size_t vl);
+vint64m1_t   __riscv_vmtl_v_i64m1 (const int64_t  *base, size_t ld, size_t lambda, size_t vl);
+vfloat16m1_t __riscv_vmtl_v_f16m1 (const _Float16 *base, size_t ld, size_t lambda, size_t vl);
+vfloat32m1_t __riscv_vmtl_v_f32m1 (const float    *base, size_t ld, size_t lambda, size_t vl);
+vfloat64m1_t __riscv_vmtl_v_f64m1 (const double   *base, size_t ld, size_t lambda, size_t vl);
 
 /* vmts.v — order-preserving tile store */
-void __riscv_vmts_v_i8m1  (int8_t   *base, size_t ld, vint8m1_t    vs3, size_t vl);
-void __riscv_vmts_v_i16m1 (int16_t  *base, size_t ld, vint16m1_t   vs3, size_t vl);
-void __riscv_vmts_v_i32m1 (int32_t  *base, size_t ld, vint32m1_t   vs3, size_t vl);
-void __riscv_vmts_v_i64m1 (int64_t  *base, size_t ld, vint64m1_t   vs3, size_t vl);
-void __riscv_vmts_v_f16m1 (_Float16 *base, size_t ld, vfloat16m1_t vs3, size_t vl);
-void __riscv_vmts_v_f32m1 (float    *base, size_t ld, vfloat32m1_t vs3, size_t vl);
-void __riscv_vmts_v_f64m1 (double   *base, size_t ld, vfloat64m1_t vs3, size_t vl);
+void __riscv_vmts_v_i8m1  (int8_t   *base, size_t ld, vint8m1_t    vs3, size_t lambda, size_t vl);
+void __riscv_vmts_v_i16m1 (int16_t  *base, size_t ld, vint16m1_t   vs3, size_t lambda, size_t vl);
+void __riscv_vmts_v_i32m1 (int32_t  *base, size_t ld, vint32m1_t   vs3, size_t lambda, size_t vl);
+void __riscv_vmts_v_i64m1 (int64_t  *base, size_t ld, vint64m1_t   vs3, size_t lambda, size_t vl);
+void __riscv_vmts_v_f16m1 (_Float16 *base, size_t ld, vfloat16m1_t vs3, size_t lambda, size_t vl);
+void __riscv_vmts_v_f32m1 (float    *base, size_t ld, vfloat32m1_t vs3, size_t lambda, size_t vl);
+void __riscv_vmts_v_f64m1 (double   *base, size_t ld, vfloat64m1_t vs3, size_t lambda, size_t vl);
 
 /* vmttl.v — transposing tile load */
-vint8m1_t    __riscv_vmttl_v_i8m1  (const int8_t   *base, size_t ld, size_t vl);
-vint16m1_t   __riscv_vmttl_v_i16m1 (const int16_t  *base, size_t ld, size_t vl);
-vint32m1_t   __riscv_vmttl_v_i32m1 (const int32_t  *base, size_t ld, size_t vl);
-vint64m1_t   __riscv_vmttl_v_i64m1 (const int64_t  *base, size_t ld, size_t vl);
-vfloat16m1_t __riscv_vmttl_v_f16m1 (const _Float16 *base, size_t ld, size_t vl);
-vfloat32m1_t __riscv_vmttl_v_f32m1 (const float    *base, size_t ld, size_t vl);
-vfloat64m1_t __riscv_vmttl_v_f64m1 (const double   *base, size_t ld, size_t vl);
+vint8m1_t    __riscv_vmttl_v_i8m1  (const int8_t   *base, size_t ld, size_t lambda, size_t vl);
+vint16m1_t   __riscv_vmttl_v_i16m1 (const int16_t  *base, size_t ld, size_t lambda, size_t vl);
+vint32m1_t   __riscv_vmttl_v_i32m1 (const int32_t  *base, size_t ld, size_t lambda, size_t vl);
+vint64m1_t   __riscv_vmttl_v_i64m1 (const int64_t  *base, size_t ld, size_t lambda, size_t vl);
+vfloat16m1_t __riscv_vmttl_v_f16m1 (const _Float16 *base, size_t ld, size_t lambda, size_t vl);
+vfloat32m1_t __riscv_vmttl_v_f32m1 (const float    *base, size_t ld, size_t lambda, size_t vl);
+vfloat64m1_t __riscv_vmttl_v_f64m1 (const double   *base, size_t ld, size_t lambda, size_t vl);
 
 /* vmtts.v — transposing tile store */
-void __riscv_vmtts_v_i8m1  (int8_t   *base, size_t ld, vint8m1_t    vs3, size_t vl);
-void __riscv_vmtts_v_i16m1 (int16_t  *base, size_t ld, vint16m1_t   vs3, size_t vl);
-void __riscv_vmtts_v_i32m1 (int32_t  *base, size_t ld, vint32m1_t   vs3, size_t vl);
-void __riscv_vmtts_v_i64m1 (int64_t  *base, size_t ld, vint64m1_t   vs3, size_t vl);
-void __riscv_vmtts_v_f16m1 (_Float16 *base, size_t ld, vfloat16m1_t vs3, size_t vl);
-void __riscv_vmtts_v_f32m1 (float    *base, size_t ld, vfloat32m1_t vs3, size_t vl);
-void __riscv_vmtts_v_f64m1 (double   *base, size_t ld, vfloat64m1_t vs3, size_t vl);
+void __riscv_vmtts_v_i8m1  (int8_t   *base, size_t ld, vint8m1_t    vs3, size_t lambda, size_t vl);
+void __riscv_vmtts_v_i16m1 (int16_t  *base, size_t ld, vint16m1_t   vs3, size_t lambda, size_t vl);
+void __riscv_vmtts_v_i32m1 (int32_t  *base, size_t ld, vint32m1_t   vs3, size_t lambda, size_t vl);
+void __riscv_vmtts_v_i64m1 (int64_t  *base, size_t ld, vint64m1_t   vs3, size_t lambda, size_t vl);
+void __riscv_vmtts_v_f16m1 (_Float16 *base, size_t ld, vfloat16m1_t vs3, size_t lambda, size_t vl);
+void __riscv_vmtts_v_f32m1 (float    *base, size_t ld, vfloat32m1_t vs3, size_t lambda, size_t vl);
+void __riscv_vmtts_v_f64m1 (double   *base, size_t ld, vfloat64m1_t vs3, size_t lambda, size_t vl);
 --
 
 [#integrated-matrix-storage-width-load-store-intrinsics,reftext="Alternate-format and storage-width-qualified tile load/store intrinsics"]
@@ -3945,33 +4445,33 @@ for order-preserving tile loads and stores. Representative examples are:
 [source,c]
 ----
 /* OFP8 natural-storage order-preserving load/store: SEW=8. */
-vfloat8e4m3m1_t __riscv_vmtl_v_f8e4m3m1(const uint8_t *base, size_t ld, size_t vl);
+vfloat8e4m3m1_t __riscv_vmtl_v_f8e4m3m1(const uint8_t *base, size_t ld, size_t lambda, size_t vl);
 
-vfloat8e5m2m1_t __riscv_vmtl_v_f8e5m2m1(const uint8_t *base, size_t ld, size_t vl);
+vfloat8e5m2m1_t __riscv_vmtl_v_f8e5m2m1(const uint8_t *base, size_t ld, size_t lambda, size_t vl);
 
-void __riscv_vmts_v_f8e4m3m1(uint8_t *base, size_t ld, vfloat8e4m3m1_t vs3, size_t vl);
+void __riscv_vmts_v_f8e4m3m1(uint8_t *base, size_t ld, vfloat8e4m3m1_t vs3, size_t lambda, size_t vl);
 
-void __riscv_vmts_v_f8e5m2m1(uint8_t *base, size_t ld, vfloat8e5m2m1_t vs3, size_t vl);
+void __riscv_vmts_v_f8e5m2m1(uint8_t *base, size_t ld, vfloat8e5m2m1_t vs3, size_t lambda, size_t vl);
 
 
 /* BF16 natural-storage order-preserving load/store: SEW=16. */
-vbfloat16m1_t __riscv_vmtl_v_bf16m1(const __bf16 *base, size_t ld, size_t vl);
+vbfloat16m1_t __riscv_vmtl_v_bf16m1(const __bf16 *base, size_t ld, size_t lambda, size_t vl);
 
-void __riscv_vmts_v_bf16m1(__bf16 *base, size_t ld, vbfloat16m1_t vs3, size_t vl);
+void __riscv_vmts_v_bf16m1(__bf16 *base, size_t ld, vbfloat16m1_t vs3, size_t lambda, size_t vl);
 
 
 /* OFP4 and Int4 natural-storage order-preserving forms use SEW=8 storage. */
-vfloat4e2m1m1_t __riscv_vmtl_v_f4e2m1m1(const uint8_t *base, size_t ld, size_t vl);
+vfloat4e2m1m1_t __riscv_vmtl_v_f4e2m1m1(const uint8_t *base, size_t ld, size_t lambda, size_t vl);
 
-vint4m1_t __riscv_vmtl_v_i4m1(const uint8_t *base, size_t ld, size_t vl);
+vint4m1_t __riscv_vmtl_v_i4m1(const uint8_t *base, size_t ld, size_t lambda, size_t vl);
 
-vuint4m1_t __riscv_vmtl_v_u4m1(const uint8_t *base, size_t ld, size_t vl);
+vuint4m1_t __riscv_vmtl_v_u4m1(const uint8_t *base, size_t ld, size_t lambda, size_t vl);
 
-void __riscv_vmts_v_f4e2m1m1(uint8_t *base, size_t ld, vfloat4e2m1m1_t vs3, size_t vl);
+void __riscv_vmts_v_f4e2m1m1(uint8_t *base, size_t ld, vfloat4e2m1m1_t vs3, size_t lambda, size_t vl);
 
-void __riscv_vmts_v_i4m1(uint8_t *base, size_t ld, vint4m1_t vs3, size_t vl);
+void __riscv_vmts_v_i4m1(uint8_t *base, size_t ld, vint4m1_t vs3, size_t lambda, size_t vl);
 
-void __riscv_vmts_v_u4m1(uint8_t *base, size_t ld, vuint4m1_t vs3, size_t vl);
+void __riscv_vmts_v_u4m1(uint8_t *base, size_t ld, vuint4m1_t vs3, size_t lambda, size_t vl);
 ----
 
 In addition to the unqualified natural-storage forms, IME defines
@@ -3990,9 +4490,11 @@ shall be at least 8. The number of logical elements packed into each
 storage element is `S / logical_EEW`.
 
 The `ld` and `vl` arguments of an `_as_e{S}` intrinsic are counted in
-storage elements of width `S`, not in logical narrow elements. No numeric
-conversion is performed. The operation is a bit-preserving load or store
-of packed storage elements.
+storage elements of width `S`, not in logical narrow elements. The runtime
+`lambda` argument (or the `_L{N}` qualifier) supplies the exact `LAMBDA`
+used with that storage `SEW`; `lambda * LMUL` is a number of storage
+elements, not logical narrow elements. No numeric conversion is performed.
+The operation is a bit-preserving load or store of packed storage elements.
 
 For storage-width-qualified tile load/store intrinsics, the base pointer
 type is determined by the storage width `S`, not by the logical element
@@ -4025,42 +4527,42 @@ by a load or supplied to a store. No numeric conversion is performed.
 
 When `S` is the natural storage width of the logical type, the `_as_e{S}`
 form and the unqualified form are equivalent. For example,
-`__riscv_vmtl_v_f8e4m3m1_as_e8` is equivalent to
-`__riscv_vmtl_v_f8e4m3m1`, and `__riscv_vmtl_v_i4m1_as_e8` is equivalent
-to `__riscv_vmtl_v_i4m1`.
+`+__riscv_vmtl_v_f8e4m3m1_as_e8+` is equivalent to
+`+__riscv_vmtl_v_f8e4m3m1+`, and `+__riscv_vmtl_v_i4m1_as_e8+` is equivalent
+to `+__riscv_vmtl_v_i4m1+`.
 
 Representative storage-width-qualified examples are:
 
 [source,c]
 ----
 /* FP16 logical elements packed in 32-bit storage positions. */
-vfloat16m1_t __riscv_vmtl_v_f16m1_as_e32(const uint32_t *base, size_t ld, size_t vl);
+vfloat16m1_t __riscv_vmtl_v_f16m1_as_e32(const uint32_t *base, size_t ld, size_t lambda, size_t vl);
 
-void __riscv_vmts_v_f16m1_as_e32(uint32_t *base, size_t ld, vfloat16m1_t vs3, size_t vl);
+void __riscv_vmts_v_f16m1_as_e32(uint32_t *base, size_t ld, vfloat16m1_t vs3, size_t lambda, size_t vl);
 
 
 /* OFP8 logical elements packed in 32-bit storage positions. */
-vfloat8e4m3m1_t __riscv_vmtl_v_f8e4m3m1_as_e32(const uint32_t *base, size_t ld, size_t vl);
+vfloat8e4m3m1_t __riscv_vmtl_v_f8e4m3m1_as_e32(const uint32_t *base, size_t ld, size_t lambda, size_t vl);
 
-void __riscv_vmts_v_f8e4m3m1_as_e32(uint32_t *base, size_t ld, vfloat8e4m3m1_t vs3, size_t vl);
+void __riscv_vmts_v_f8e4m3m1_as_e32(uint32_t *base, size_t ld, vfloat8e4m3m1_t vs3, size_t lambda, size_t vl);
 
 
 /* OFP4 logical elements packed in 32-bit storage positions. */
-vfloat4e2m1m1_t __riscv_vmtl_v_f4e2m1m1_as_e32(const uint32_t *base, size_t ld, size_t vl);
+vfloat4e2m1m1_t __riscv_vmtl_v_f4e2m1m1_as_e32(const uint32_t *base, size_t ld, size_t lambda, size_t vl);
 
-void __riscv_vmts_v_f4e2m1m1_as_e32(uint32_t *base, size_t ld, vfloat4e2m1m1_t vs3, size_t vl);
+void __riscv_vmts_v_f4e2m1m1_as_e32(uint32_t *base, size_t ld, vfloat4e2m1m1_t vs3, size_t lambda, size_t vl);
 
 
 /* Int8 logical elements packed in 32-bit storage positions. */
-vint8m1_t __riscv_vmtl_v_i8m1_as_e32(const uint32_t *base, size_t ld, size_t vl);
+vint8m1_t __riscv_vmtl_v_i8m1_as_e32(const uint32_t *base, size_t ld, size_t lambda, size_t vl);
 
-void __riscv_vmts_v_i8m1_as_e32(uint32_t *base, size_t ld, vint8m1_t vs3, size_t vl);
+void __riscv_vmts_v_i8m1_as_e32(uint32_t *base, size_t ld, vint8m1_t vs3, size_t lambda, size_t vl);
 
 
 /* Int4 logical elements packed in 32-bit storage positions. */
-vint4m1_t __riscv_vmtl_v_i4m1_as_e32(const uint32_t *base, size_t ld, size_t vl);
+vint4m1_t __riscv_vmtl_v_i4m1_as_e32(const uint32_t *base, size_t ld, size_t lambda, size_t vl);
 
-void __riscv_vmts_v_i4m1_as_e32(uint32_t *base, size_t ld, vint4m1_t vs3, size_t vl);
+void __riscv_vmts_v_i4m1_as_e32(uint32_t *base, size_t ld, vint4m1_t vs3, size_t lambda, size_t vl);
 ----
 
 Storage-width-qualified intrinsics are defined for `vmtl.v` and `vmts.v`.
@@ -4078,15 +4580,15 @@ Representative alternate-format transposing examples are:
 [source,c]
 ----
 /* OFP8 natural-storage transposing load/store: SEW=8. */
-vfloat8e4m3m1_t __riscv_vmttl_v_f8e4m3m1(const uint8_t *base, size_t ld, size_t vl);
+vfloat8e4m3m1_t __riscv_vmttl_v_f8e4m3m1(const uint8_t *base, size_t ld, size_t lambda, size_t vl);
 
-void __riscv_vmtts_v_f8e4m3m1(uint8_t *base, size_t ld, vfloat8e4m3m1_t vs3, size_t vl);
+void __riscv_vmtts_v_f8e4m3m1(uint8_t *base, size_t ld, vfloat8e4m3m1_t vs3, size_t lambda, size_t vl);
 
 
 /* BF16 natural-storage transposing load/store: SEW=16. */
-vbfloat16m1_t __riscv_vmttl_v_bf16m1(const __bf16 *base, size_t ld, size_t vl);
+vbfloat16m1_t __riscv_vmttl_v_bf16m1(const __bf16 *base, size_t ld, size_t lambda, size_t vl);
 
-void __riscv_vmtts_v_bf16m1(__bf16 *base, size_t ld, vbfloat16m1_t vs3, size_t vl);
+void __riscv_vmtts_v_bf16m1(__bf16 *base, size_t ld, vbfloat16m1_t vs3, size_t lambda, size_t vl);
 ----
 
 The C intrinsic API does not define transposing forms for packed-narrow
@@ -4110,8 +4612,10 @@ When an immediate `LAMBDA` override is required, an `_L{N}` variant
 encodes the requested value, where `N` ∈ {`1`, `2`, `4`, `8`, `16`, `32`,
 `64`}, directly in the intrinsic name. The compiler can statically verify
 that `N` is an encodable nonzero `LAMBDA` value and can place its
-corresponding three-bit encoding in the instruction-immediate field; no
-runtime `LAMBDA` argument is required.
+corresponding three-bit encoding in the instruction-immediate field. These
+forms retain their existing signatures and do not accept a `lambda`
+argument. The `_L{N}` value is exact and does not depend on the incoming
+`vtype.lambda` value.
 
 Encodability, architectural permissibility, and implementation support are
 distinct. An encodable `N` may be architecturally impermissible for the
@@ -4165,18 +4669,21 @@ packed within it.
 [source,c]
 --
 /* vmtl.v masked: */
-vint8m1_t  __riscv_vmtl_v_i8m1_m  (vbool8_t mask,  const int8_t  *base, size_t ld, size_t vl);
-vint32m1_t __riscv_vmtl_v_i32m1_m (vbool32_t mask, const int32_t *base, size_t ld, size_t vl);
+vint8m1_t  __riscv_vmtl_v_i8m1_m  (vbool8_t mask,  const int8_t  *base, size_t ld, size_t lambda, size_t vl);
+vint32m1_t __riscv_vmtl_v_i32m1_m (vbool32_t mask, const int32_t *base, size_t ld, size_t lambda, size_t vl);
 
 /* SEW=32, LMUL=2: mask ratio is 32/2 = 16. */
-vint32m2_t __riscv_vmtl_v_i32m2_m (vbool16_t mask, const int32_t *base, size_t ld, size_t vl);
+vint32m2_t __riscv_vmtl_v_i32m2_m (vbool16_t mask, const int32_t *base, size_t ld, size_t lambda, size_t vl);
 /* vmts.v masked: */
-void __riscv_vmts_v_i8m1_m  (vbool8_t mask,  int8_t  *base, size_t ld, vint8m1_t  vs3, size_t vl);
-void __riscv_vmts_v_i32m1_m (vbool32_t mask, int32_t *base, size_t ld, vint32m1_t vs3, size_t vl);
+void __riscv_vmts_v_i8m1_m  (vbool8_t mask,  int8_t  *base, size_t ld, vint8m1_t  vs3,
+    size_t lambda, size_t vl);
+void __riscv_vmts_v_i32m1_m (vbool32_t mask, int32_t *base, size_t ld, vint32m1_t vs3,
+    size_t lambda, size_t vl);
 /* vmttl.v masked: */
-vint32m1_t __riscv_vmttl_v_i32m1_m (vbool32_t mask, const int32_t *base, size_t ld, size_t vl);
+vint32m1_t __riscv_vmttl_v_i32m1_m (vbool32_t mask, const int32_t *base, size_t ld, size_t lambda, size_t vl);
 /* vmtts.v masked: */
-void __riscv_vmtts_v_i32m1_m (vbool32_t mask, int32_t *base, size_t ld, vint32m1_t vs3, size_t vl);
+void __riscv_vmtts_v_i32m1_m (vbool32_t mask, int32_t *base, size_t ld, vint32m1_t vs3,
+    size_t lambda, size_t vl);
 --
 
 The `_L{N}` (immediate-lambda) and `_m` (masked) qualifiers are orthogonal
@@ -4198,28 +4705,35 @@ element width:
 ----
 /* FP16 logical elements in SEW=32 storage, LMUL=1:
    mask ratio is 32/1 = 32. */
-vfloat16m1_t __riscv_vmtl_v_f16m1_as_e32_m(vbool32_t mask, const uint32_t *base, size_t ld, size_t vl);
+vfloat16m1_t __riscv_vmtl_v_f16m1_as_e32_m(vbool32_t mask, const uint32_t *base, size_t ld,
+    size_t lambda, size_t vl);
 
 /* FP16 logical elements in SEW=32 storage, LMUL=2:
    mask ratio is 32/2 = 16. */
-vfloat16m2_t __riscv_vmtl_v_f16m2_as_e32_m(vbool16_t mask, const uint32_t *base, size_t ld, size_t vl);
+vfloat16m2_t __riscv_vmtl_v_f16m2_as_e32_m(vbool16_t mask, const uint32_t *base, size_t ld,
+    size_t lambda, size_t vl);
 
 /* An immediate LAMBDA qualifier does not change the mask ratio. */
 vfloat16m1_t __riscv_vmtl_v_f16m1_as_e32_L4_m(vbool32_t mask, const uint32_t *base, size_t ld, size_t vl);
 ----
 
 Example: loading FP16 input tiles for an FP16-by-FP16 to FP32
-widening multiply-accumulate can keep `SEW=32` for both the tile
-load and the multiply-accumulate instruction.
+widening multiply-accumulate uses `SEW=32` for both transfers and the
+computation. Here, `lambda` is an explicit scalar holding the exact
+supported value used for the panel layout, not an incoming hardware
+setting. This code path is selected only when that value gives
+`EMUL_C=16` at `SEW=32`, matching the type of `c`:
+
+    VLEN / (32 * lambda * lambda) = 16.
 
 [source,c]
 ----
-/* vtype has SEW=32, LMUL=1, and the desired lambda. */
+/* Each call specifies its own geometry; A/B transfers use LMUL=1. */
 /* Each 32-bit storage element contains two packed FP16 values. */
 
-vfloat16m1_t a = __riscv_vmtl_v_f16m1_as_e32(A_packed, lda_in_e32, vl_in_e32);
+vfloat16m1_t a = __riscv_vmtl_v_f16m1_as_e32(A_packed, lda_in_e32, lambda, vl_in_e32);
 
-vfloat16m1_t b = __riscv_vmtl_v_f16m1_as_e32(B_packed, ldb_in_e32, vl_in_e32);
+vfloat16m1_t b = __riscv_vmtl_v_f16m1_as_e32(B_packed, ldb_in_e32, lambda, vl_in_e32);
 
 c = __riscv_vfwmmacc_vv_f32m16_f16m1(c, a, b, vl_in_e32);
 ----
@@ -4588,8 +5102,12 @@ favors compiler intrinsics.
 The recommended approach for writing portable code with IME intrinsics is to
 package multiple code paths in the same executable, each optimized for a
 specific `EMUL_C` value.
-The appropriate code path is then selected at run time based on the result of
-`vsetvl` and the computed value of `EMUL_C = VLEN / (SEW × LAMBDA²)`.
+The appropriate code path may be selected at run time using a SEW-qualified
+lambda selector and the computed value of
+`EMUL_C = VLEN / (SEW × LAMBDA²)`. The selector supplies a scalar value for
+dispatch, not a persistent hardware mode. Each computational intrinsic
+executes with the geometry implied by its types and the execution-time
+VLEN. See <<microdgemm-intrinsics-example>> for a complete five-way example.
 
 ==== Encoding-map legality overview
 
