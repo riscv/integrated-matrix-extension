@@ -1772,9 +1772,9 @@ where L = ⌈K_eff / block_size⌉ is the number of scale blocks per
 row/column, and block(_s_) covers elements
 [_s_ × block_size, min((_s_+1) × block_size, K_eff) − 1].
 
-stem:[\text{scale_A}_{i,s}] and stem:[\text{scale_B}_{j,s}] are decoded from the
-per-block scale fields in `v0` according to the scale format associated
-with the input data type.
+stem:[\text{scale_A}_{i,s}] and stem:[\text{scale_B}_{j,s}] are the
+per-block scales held in `v0` for row _i_ and column _j_ of block _s_
+according to the scale format associated with the input data type.
 If the combined block scale -- the product
 stem:[\text{scale_A}_{i,s} \times \text{scale_B}_{j,s}] formed in the C
 accumulator format -- is NaN, the corresponding output element
