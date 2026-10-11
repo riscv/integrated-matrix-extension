@@ -700,6 +700,306 @@ placement, and elimination of redundant initialization or register moves
 are compiler decisions; this listing does not promise the exact physical
 register assignments or instruction counts of the assembly-oriented example.
 
+[#integrated-matrix-rowmajor-microkernel]
+==== Companion microkernel using IME tile loads and stores
+
+<<microdgemm-intrinsics-rowmajor-example>> extends
+<<microdgemm-intrinsics-example>> to operate directly on row-major A, B,
+and C matrices. It computes `C = A × B` for one complete microkernel block,
+using IME tile loads and stores instead of packed A/B panels and a packed
+C workspace. Accumulators start at positive zero, and the result is written
+directly into the application C matrix; existing C values are not loaded.
+
+The pointers identify the top-left elements of the matrix blocks. `LDA`,
+`LDB`, and `LDC` are their row strides in `double` elements, not bytes, so
+the blocks may be submatrices of larger allocations. The matrix addressing
+conventions are:
+
+    A[i * LDA + k]
+    B[k * LDB + j]
+    C[i * LDC + j]
+
+The routine calls `+__riscv_vsetlambda_e64(0)+` to obtain the largest
+supported nonzero `LAMBDA` for `SEW=64` and asserts that the returned value
+is nonzero. This uses the state-independent selection rule in
+<<integrated-matrix-sew-lambda-selection>>. There is no
+`requested_lambda` parameter or packing geometry to match. The returned
+scalar `lambda` is supplied explicitly to each tile load/store, following
+<<integrated-matrix-runtime-lambda-load-store>>; no persistent hardware
+lambda setting is assumed. Each computational intrinsic independently
+specifies its geometry as described in
+<<integrated-matrix-intrinsic-compute-geometry>>.
+
+Let `L = VLEN/64` and `T = L/lambda`. One vector register holds a
+`T × lambda` tile of doubles, and each full C accumulator tile has shape
+`T × T`. The routine retains the five `EMUL_C` organizations of the
+preceding example. The resulting block dimensions `M × N` are summarized
+in the listing's initial comment; `M` and `N` are implied dimensions, not
+function arguments. All tile offsets are computed from `T` and the leading
+dimensions.
+
+The caller must provide storage for that complete block and a `K` that is
+a multiple of the selected `lambda`. The row strides satisfy `LDA >= K`,
+`LDB >= N`, and `LDC >= N`, and C must not overlap A or B. As in the preceding
+example, all accessed storage must be valid and size and offset calculations
+must not overflow. The assertions express preconditions that still apply
+when assertions are disabled. This example does not handle arbitrary edge
+blocks, a K remainder, or general `alpha` and `beta` factors. For `K=0`, it
+writes positive zero to the C block without accessing A or B.
+
+[#microdgemm-intrinsics-rowmajor-example]
+.Double-precision GEMM microkernel for row-major matrices using IME tile loads and stores
+[source,c,linenums]
+----
+#include <assert.h>
+#include <stddef.h>
+#include <riscv_vector.h>
+
+/*
+ * C = A * B for one full microkernel block; A, B, and C are row-major.
+ * A is M-by-K, B is K-by-N, and C is M-by-N. LDA, LDB, and LDC are
+ * row strides in doubles, not bytes. The pointers may address submatrices.
+ * No packing, output workspace, or existing-C load is used.
+ * In multi-tile branches, dA/dC advance by T rows of A/C, respectively;
+ * column-tile offsets in B and C are multiples of T.
+ *
+ * Let L = VLEN/64 and T = L/lambda. One vector register holds a
+ * T x lambda tile of doubles. Required full-block dimensions:
+ *   EMUL_C     16       8         4         2         1
+ *   M x N     T x T   2T x T   2T x 2T   4T x 2T   4T x 4T
+ * M and N are these implied block dimensions, not function arguments.
+ *
+ * lambda is selected by __riscv_vsetlambda_e64(0): the largest supported
+ * nonzero value for SEW=64. Such a value must exist, and K must be a
+ * multiple of it. The caller must provide the full block described above.
+ * LDA >= K, LDB >= N, and LDC >= N. C must not overlap A or B.
+ * All accessed storage must be valid; sizes and offsets must not overflow.
+ * K=0 writes positive zero to C without accessing A or B.
+ * Assertions document preconditions that still apply under NDEBUG.
+ *
+ * Requires the draft IME types/intrinsics in addition to ordinary RVV,
+ * including tile transfers with explicit lambda immediately before vl.
+ */
+void microdgemm_intrinsics_rowmajor
+(
+    size_t        K,
+    const double *A, size_t LDA,
+    const double *B, size_t LDB,
+    double       *C, size_t LDC
+)
+{
+    const size_t lambda = __riscv_vsetlambda_e64(0);
+    assert(lambda != 0);                                                // <1>
+
+    const size_t L = __riscv_ime_vlen() / 64;
+    assert(L != 0 && L % (lambda * lambda) == 0);
+    const size_t emul_c = L / (lambda * lambda);
+    assert(emul_c == 1 || emul_c == 2 || emul_c == 4 || emul_c == 8 || emul_c == 16);
+    const size_t T = L / lambda;
+    assert(K % lambda == 0);
+    assert(LDA >= K);
+
+    const size_t dA = T * LDA;
+    const size_t dC = T * LDC;                                          // <2>
+
+    if (emul_c == 16) {
+        assert(LDB >= T && LDC >= T);
+        const size_t H = T / 2;  /* 8 * lambda columns per m8 half. */
+        vfloat64m8_t  zero8 = __riscv_vfmv_v_f_f64m8(0.0, 8 * L);
+        vfloat64m16_t c00   = __riscv_ime_vpair_f64m16(zero8, zero8);
+
+        for (size_t k = 0; k < K; k += lambda) {
+            const double *a = A + k;
+            const double *b = B + k * LDB;
+            vfloat64m1_t a0 = __riscv_vmtl_v_f64m1(a, LDA, lambda, L);
+            vfloat64m1_t b0 = __riscv_vmttl_v_f64m1(b, LDB, lambda, L);  // <3>
+            c00 = __riscv_vfmmacc_vv_f64m16(c00, a0, b0, L);            // <4>
+        }
+
+        vfloat64m8_t lo = __riscv_ime_vunpairlo_f64m16(c00);
+        vfloat64m8_t hi = __riscv_ime_vunpairhi_f64m16(c00);
+        __riscv_vmts_v_f64m8(C    , LDC, lo, lambda, 8 * L);
+        __riscv_vmts_v_f64m8(C + H, LDC, hi, lambda, 8 * L);            // <5>
+    } else if (emul_c == 8) {
+        assert(LDB >= T && LDC >= T);
+        vfloat64m8_t c00 = __riscv_vfmv_v_f_f64m8(0.0, 8 * L);
+        vfloat64m8_t c10 = __riscv_vfmv_v_f_f64m8(0.0, 8 * L);
+
+        for (size_t k = 0; k < K; k += lambda) {
+            const double *a = A + k;
+            const double *b = B + k * LDB;
+            vfloat64m1_t a0 = __riscv_vmtl_v_f64m1(a, LDA, lambda, L);
+            vfloat64m1_t b0 = __riscv_vmttl_v_f64m1(b, LDB, lambda, L);
+            c00 = __riscv_vfmmacc_vv_f64m8(c00, a0, b0, L);
+            vfloat64m1_t a1 = __riscv_vmtl_v_f64m1(a + dA, LDA, lambda, L);
+            c10 = __riscv_vfmmacc_vv_f64m8(c10, a1, b0, L);
+        }
+
+        __riscv_vmts_v_f64m8(C     , LDC, c00, lambda, 8 * L);
+        __riscv_vmts_v_f64m8(C + dC, LDC, c10, lambda, 8 * L);
+    } else if (emul_c == 4) {
+        assert(LDB >= 2 * T && LDC >= 2 * T);
+        vfloat64m4_t c00 = __riscv_vfmv_v_f_f64m4(0.0, 4 * L);
+        vfloat64m4_t c10 = __riscv_vfmv_v_f_f64m4(0.0, 4 * L);
+        vfloat64m4_t c01 = __riscv_vfmv_v_f_f64m4(0.0, 4 * L);
+        vfloat64m4_t c11 = __riscv_vfmv_v_f_f64m4(0.0, 4 * L);
+
+        for (size_t k = 0; k < K; k += lambda) {
+            const double *a = A + k;
+            const double *b = B + k * LDB;
+            vfloat64m1_t a0 = __riscv_vmtl_v_f64m1(a, LDA, lambda, L);
+            vfloat64m1_t b0 = __riscv_vmttl_v_f64m1(b, LDB, lambda, L);
+            c00 = __riscv_vfmmacc_vv_f64m4(c00, a0, b0, L);
+            vfloat64m1_t a1 = __riscv_vmtl_v_f64m1(a + dA, LDA, lambda, L);
+            c10 = __riscv_vfmmacc_vv_f64m4(c10, a1, b0, L);
+            vfloat64m1_t b1 = __riscv_vmttl_v_f64m1(b + T, LDB, lambda, L);
+            c01 = __riscv_vfmmacc_vv_f64m4(c01, a0, b1, L);
+            c11 = __riscv_vfmmacc_vv_f64m4(c11, a1, b1, L);
+        }
+
+        __riscv_vmts_v_f64m4(C         , LDC, c00, lambda, 4 * L);
+        __riscv_vmts_v_f64m4(C + dC    , LDC, c10, lambda, 4 * L);
+        __riscv_vmts_v_f64m4(C + T     , LDC, c01, lambda, 4 * L);
+        __riscv_vmts_v_f64m4(C + dC + T, LDC, c11, lambda, 4 * L);
+    } else if (emul_c == 2) {
+        assert(LDB >= 2 * T && LDC >= 2 * T);
+        vfloat64m2_t c00 = __riscv_vfmv_v_f_f64m2(0.0, 2 * L);
+        vfloat64m2_t c10 = __riscv_vfmv_v_f_f64m2(0.0, 2 * L);
+        vfloat64m2_t c20 = __riscv_vfmv_v_f_f64m2(0.0, 2 * L);
+        vfloat64m2_t c30 = __riscv_vfmv_v_f_f64m2(0.0, 2 * L);
+        vfloat64m2_t c01 = __riscv_vfmv_v_f_f64m2(0.0, 2 * L);
+        vfloat64m2_t c11 = __riscv_vfmv_v_f_f64m2(0.0, 2 * L);
+        vfloat64m2_t c21 = __riscv_vfmv_v_f_f64m2(0.0, 2 * L);
+        vfloat64m2_t c31 = __riscv_vfmv_v_f_f64m2(0.0, 2 * L);
+
+        for (size_t k = 0; k < K; k += lambda) {
+            const double *a = A + k;
+            const double *b = B + k * LDB;
+            vfloat64m1_t a0 = __riscv_vmtl_v_f64m1(a, LDA, lambda, L);
+            vfloat64m1_t b0 = __riscv_vmttl_v_f64m1(b, LDB, lambda, L);
+            c00 = __riscv_vfmmacc_vv_f64m2(c00, a0, b0, L);
+            vfloat64m1_t a1 = __riscv_vmtl_v_f64m1(a + dA, LDA, lambda, L);
+            c10 = __riscv_vfmmacc_vv_f64m2(c10, a1, b0, L);
+            vfloat64m1_t a2 = __riscv_vmtl_v_f64m1(a + 2*dA, LDA, lambda, L);
+            c20 = __riscv_vfmmacc_vv_f64m2(c20, a2, b0, L);
+            vfloat64m1_t a3 = __riscv_vmtl_v_f64m1(a + 3*dA, LDA, lambda, L);
+            c30 = __riscv_vfmmacc_vv_f64m2(c30, a3, b0, L);
+            vfloat64m1_t b1 = __riscv_vmttl_v_f64m1(b + T, LDB, lambda, L);
+            c01 = __riscv_vfmmacc_vv_f64m2(c01, a0, b1, L);
+            c11 = __riscv_vfmmacc_vv_f64m2(c11, a1, b1, L);
+            c21 = __riscv_vfmmacc_vv_f64m2(c21, a2, b1, L);
+            c31 = __riscv_vfmmacc_vv_f64m2(c31, a3, b1, L);
+        }
+
+        __riscv_vmts_v_f64m2(C           , LDC, c00, lambda, 2 * L);
+        __riscv_vmts_v_f64m2(C + dC      , LDC, c10, lambda, 2 * L);
+        __riscv_vmts_v_f64m2(C + 2*dC    , LDC, c20, lambda, 2 * L);
+        __riscv_vmts_v_f64m2(C + 3*dC    , LDC, c30, lambda, 2 * L);
+        __riscv_vmts_v_f64m2(C + T       , LDC, c01, lambda, 2 * L);
+        __riscv_vmts_v_f64m2(C + dC + T  , LDC, c11, lambda, 2 * L);
+        __riscv_vmts_v_f64m2(C + 2*dC + T, LDC, c21, lambda, 2 * L);
+        __riscv_vmts_v_f64m2(C + 3*dC + T, LDC, c31, lambda, 2 * L);
+    } else if (emul_c == 1) {
+        assert(LDB >= 4 * T && LDC >= 4 * T);
+        vfloat64m1_t c00 = __riscv_vfmv_v_f_f64m1(0.0, L);
+        vfloat64m1_t c10 = __riscv_vfmv_v_f_f64m1(0.0, L);
+        vfloat64m1_t c20 = __riscv_vfmv_v_f_f64m1(0.0, L);
+        vfloat64m1_t c30 = __riscv_vfmv_v_f_f64m1(0.0, L);
+        vfloat64m1_t c01 = __riscv_vfmv_v_f_f64m1(0.0, L);
+        vfloat64m1_t c11 = __riscv_vfmv_v_f_f64m1(0.0, L);
+        vfloat64m1_t c21 = __riscv_vfmv_v_f_f64m1(0.0, L);
+        vfloat64m1_t c31 = __riscv_vfmv_v_f_f64m1(0.0, L);
+        vfloat64m1_t c02 = __riscv_vfmv_v_f_f64m1(0.0, L);
+        vfloat64m1_t c12 = __riscv_vfmv_v_f_f64m1(0.0, L);
+        vfloat64m1_t c22 = __riscv_vfmv_v_f_f64m1(0.0, L);
+        vfloat64m1_t c32 = __riscv_vfmv_v_f_f64m1(0.0, L);
+        vfloat64m1_t c03 = __riscv_vfmv_v_f_f64m1(0.0, L);
+        vfloat64m1_t c13 = __riscv_vfmv_v_f_f64m1(0.0, L);
+        vfloat64m1_t c23 = __riscv_vfmv_v_f_f64m1(0.0, L);
+        vfloat64m1_t c33 = __riscv_vfmv_v_f_f64m1(0.0, L);
+
+        for (size_t k = 0; k < K; k += lambda) {
+            const double *a = A + k;
+            const double *b = B + k * LDB;
+            vfloat64m1_t a0 = __riscv_vmtl_v_f64m1(a, LDA, lambda, L);
+            vfloat64m1_t b0 = __riscv_vmttl_v_f64m1(b, LDB, lambda, L);
+            c00 = __riscv_vfmmacc_vv_f64m1(c00, a0, b0, L);
+            vfloat64m1_t a1 = __riscv_vmtl_v_f64m1(a + dA, LDA, lambda, L);
+            c10 = __riscv_vfmmacc_vv_f64m1(c10, a1, b0, L);
+            vfloat64m1_t a2 = __riscv_vmtl_v_f64m1(a + 2*dA, LDA, lambda, L);
+            c20 = __riscv_vfmmacc_vv_f64m1(c20, a2, b0, L);
+            vfloat64m1_t a3 = __riscv_vmtl_v_f64m1(a + 3*dA, LDA, lambda, L);
+            c30 = __riscv_vfmmacc_vv_f64m1(c30, a3, b0, L);
+            vfloat64m1_t b1 = __riscv_vmttl_v_f64m1(b + T, LDB, lambda, L);
+            c01 = __riscv_vfmmacc_vv_f64m1(c01, a0, b1, L);
+            c11 = __riscv_vfmmacc_vv_f64m1(c11, a1, b1, L);
+            c21 = __riscv_vfmmacc_vv_f64m1(c21, a2, b1, L);
+            c31 = __riscv_vfmmacc_vv_f64m1(c31, a3, b1, L);
+            vfloat64m1_t b2 = __riscv_vmttl_v_f64m1(b + 2*T, LDB, lambda, L);
+            c02 = __riscv_vfmmacc_vv_f64m1(c02, a0, b2, L);
+            c12 = __riscv_vfmmacc_vv_f64m1(c12, a1, b2, L);
+            c22 = __riscv_vfmmacc_vv_f64m1(c22, a2, b2, L);
+            c32 = __riscv_vfmmacc_vv_f64m1(c32, a3, b2, L);
+            vfloat64m1_t b3 = __riscv_vmttl_v_f64m1(b + 3*T, LDB, lambda, L);
+            c03 = __riscv_vfmmacc_vv_f64m1(c03, a0, b3, L);
+            c13 = __riscv_vfmmacc_vv_f64m1(c13, a1, b3, L);
+            c23 = __riscv_vfmmacc_vv_f64m1(c23, a2, b3, L);
+            c33 = __riscv_vfmmacc_vv_f64m1(c33, a3, b3, L);
+        }
+
+        __riscv_vmts_v_f64m1(C             , LDC, c00, lambda, L);
+        __riscv_vmts_v_f64m1(C + dC        , LDC, c10, lambda, L);
+        __riscv_vmts_v_f64m1(C + 2*dC      , LDC, c20, lambda, L);
+        __riscv_vmts_v_f64m1(C + 3*dC      , LDC, c30, lambda, L);
+        __riscv_vmts_v_f64m1(C + T         , LDC, c01, lambda, L);
+        __riscv_vmts_v_f64m1(C + dC + T    , LDC, c11, lambda, L);
+        __riscv_vmts_v_f64m1(C + 2*dC + T  , LDC, c21, lambda, L);
+        __riscv_vmts_v_f64m1(C + 3*dC + T  , LDC, c31, lambda, L);
+        __riscv_vmts_v_f64m1(C + 2*T       , LDC, c02, lambda, L);
+        __riscv_vmts_v_f64m1(C + dC + 2*T  , LDC, c12, lambda, L);
+        __riscv_vmts_v_f64m1(C + 2*dC + 2*T, LDC, c22, lambda, L);
+        __riscv_vmts_v_f64m1(C + 3*dC + 2*T, LDC, c32, lambda, L);
+        __riscv_vmts_v_f64m1(C + 3*T       , LDC, c03, lambda, L);
+        __riscv_vmts_v_f64m1(C + dC + 3*T  , LDC, c13, lambda, L);
+        __riscv_vmts_v_f64m1(C + 2*dC + 3*T, LDC, c23, lambda, L);
+        __riscv_vmts_v_f64m1(C + 3*dC + 3*T, LDC, c33, lambda, L);
+    }
+}
+----
+<1> A zero request selects the largest supported nonzero `LAMBDA` at
+    `SEW=64`, independently of an earlier selection. The assertion rejects
+    the absence of a supported geometry; this is not the packed-panel
+    example's exact-request check.
+<2> `L` counts doubles per register, and `T` is the row count of a
+    single-register tile. `EMUL_C = L / (lambda × lambda)` selects the typed
+    branch. The offsets `dA` and `dC` advance by `T` rows in A and C;
+    offsets of `T`, `2*T`, and `3*T` select successive tile columns in B or C.
+<3> The order-preserving A load reads a `T × lambda` row-major tile.
+    The transposing B load reads a `lambda × T` block of the row-major
+    B matrix and constructs the required `T × lambda` register tile.
+    This changes the in-register representation, not the mathematical
+    product: the kernel computes the application matrices' `A × B`.
+    Both input transfers use `LMUL=1`, explicit `lambda`, and `vl=L`.
+<4> The matrix operation uses `vl=L`, updating all columns of the physical
+    C tile. Its accumulator type determines `EMUL_C` and, together with
+    `SEW=64` and execution-time `VLEN`, the required `LAMBDA`. The five
+    branches retain the preceding example's A/B reuse and K-loop step.
+<5> C stores use the physical accumulator layout, not the input transfer
+    length. For `EMUL_C <= 8`, each tile is stored with transfer
+    `LMUL=EMUL_C` and `vl=EMUL_C × L`, using `LDC` as the row stride.
+    The `m16` case unpairs the accumulator into two `m8` values and stores
+    each with `vl=8 × L`, as described in
+    <<integrated-matrix-m16-c-load-store>>. These are column halves:
+    `H = T/2 = 8 × lambda`, so the high half starts at `C + H`, not at the
+    packed-workspace offset `C + 8 * L`. No `LMUL=16` transfer is assumed.
+
+The stores are outside the K loop and write directly to the final row-major
+C block. No subsequent unpacking or copy from a packed workspace is needed.
+As in the preceding intrinsic example, the compiler manages physical
+register allocation and configuration changes. Pairing and unpairing have
+the value semantics specified in <<integrated-matrix-ime-m16-pairing>>;
+zero-instruction lowering depends on allocation and liveness.
+
 ==== Implementation support choices for tile geometry (`LAMBDA` and `EMUL_C`)
 
 For a given (`VLEN`, `SEW`) configuration, the architectural legality
