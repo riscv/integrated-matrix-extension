@@ -182,7 +182,8 @@ greater than or equal to 1.
 If `L` is a perfect square (an even power of two), the architecturally
 permissible values of `KLEN` are the members of
 
-    {L½, L½ / 2, L½ / 4}
+[.text-center]
+{`L`^½^, `L`^½^ / 2, `L`^½^ / 4}
 
 that are integer powers of two greater than or equal to 1. These values
 correspond to `EMUL_C` ∈ {`1`, `4`, `16`}.
@@ -190,7 +191,8 @@ correspond to `EMUL_C` ∈ {`1`, `4`, `16`}.
 If `L` is two times a perfect square (an odd power of two), the
 architecturally permissible values of `KLEN` are the members of
 
-    {(L / 2)½, (L / 2)½ / 2}
+[.text-center]
+{(`L` / 2)^½^, (`L` / 2)^½^ / 2}
 
 that are integer powers of two greater than or equal to 1. These values
 correspond to `EMUL_C` ∈ {`2`, `8`}.
