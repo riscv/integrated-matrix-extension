@@ -990,8 +990,16 @@ For integer multiply-accumulate instructions, `altfmt_A` and `altfmt_B` select w
 ==== Microscaling block size (`bs`)
 
 The `bs` field is a 1-bit read/write field in the `vtype` CSR that selects
-the block size used for microscaling operations (`vm=0`).  When `vm=1`, the
-`bs` field is ignored.
+the block size used by microscaled multiply-accumulate instructions
+(`vm=0`; see <<integrated-matrix-microscaling>>).
+
+The `bs` field is read only by microscaled multiply-accumulate
+instructions. Every other instruction, including the `vm=1` forms of the
+same opcodes, the non-widening multiply-accumulate instructions, and the
+tile load and store instructions, does not read `bs`, and the value held
+in `bs` has no effect on its operation or legality. In particular, a
+nonzero `bs` does not make any such instruction raise an
+illegal-instruction exception.
 
 .Block size encoding
 [cols="1,2"]
@@ -1006,6 +1014,34 @@ the block size used for microscaling operations (`vm=0`).  When `vm=1`, the
 The `bs` bit is located at `vtype[XLEN-5]`, immediately below `lambda[2:0]`.
 Like `altfmt_A` and `altfmt_B`, this position is outside the `vsetvli`
 immediate field.
+
+[NOTE]
+====
+`bs` is deliberately a don't-care, rather than reserved, for instructions
+that do not perform microscaling. This differs from the treatment of
+`altfmt_A` and `altfmt_B` at input widths where only one format exists,
+such as 4-bit inputs, where the unused encoding is reserved
+(<<integrated-matrix-altfmt-inputs>>).
+
+The reason is the software cost. `bs = 1` is the normal, persistent
+configuration of a kernel that operates on block-size-16 MX data, and
+`vsetvli`/`vsetivli` retain `bs` across reconfiguration
+(<<integrated-matrix-vtype-config>>). If a nonzero `bs` were reserved
+for non-microscaled instructions, every ordinary vector or matrix
+instruction executed after such a kernel would trap until software
+cleared the field with a register-form `vsetvl`. Reserving the encoding
+would add that `vsetvl` to every transition out of MX code for no
+architectural benefit, because an instruction that does not scale has no
+meaningful use for a block size.
+
+This don't-care is permanent. The encoding `bs = 1` with `vm = 1`, and
+the value of `bs` as seen by any non-microscaled instruction, will not be
+given a meaning by a future version of this specification or by a
+future extension. An extension that needs a per-instruction control for
+non-microscaled operations shall obtain it from other encoding space.
+Software may therefore leave `bs` set across non-microscaled code
+without risk to forward compatibility.
+====
 
 === Storage formats
 
@@ -1744,7 +1780,9 @@ extension:
     vf8wmmacc.vv vd, vs1, vs2, v0.scale
 
 When `vm=0` is not specified (i.e., `vm=1`, the default), no scaling is
-applied, `v0` is not read, and the `bs` field is ignored.
+applied, `v0` is not read implicitly as a scale source (it may still be
+named as an explicit operand like any other vector register), and the
+`bs` field is not read (<<integrated-matrix-bs>>).
 
 ===== Semantics
 
@@ -6673,8 +6711,10 @@ example, a mixed FP16 and BF16 row that names both `Zvvfp16fp32mm` and
 `Zvvbf16fp32mm` requires both extensions.
 
 Where the table indicates that an `altfmt_A` or `altfmt_B` field is ignored,
-either value of that field selects the same row. The `bs` field is ignored
-when `vm=1`.
+either value of that field selects the same row. The `bs` field does not
+participate in the selection of a `vm=1` row and has no effect on its
+legality (<<integrated-matrix-bs>>); it participates only in the selection
+of the `MX BS=32 (vm=0)` and `MX BS=16 (vm=0)` cells.
 
 For `vm=1`, the `Extension` column identifies the extension or extensions
 required by the selected row.
@@ -6822,7 +6862,8 @@ The encoding is legal only if the selected row is not marked `_reserved_`
 and the extension named in the `Extension` cell is implemented.
 
 The `altfmt` and `bs` fields do not participate in the selection of an
-ordinary integer row and are ignored when `vm=1`.
+ordinary integer row and have no effect on its legality when `vm=1`
+(<<integrated-matrix-bs>>).
 
 [#tbl-int-encoding-map]
 .Integer multiply-accumulate encoding map
