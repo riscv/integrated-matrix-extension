@@ -2358,6 +2358,13 @@ The following rules apply to all tile load/store instructions:
 * For a masked tile load, the destination register group shall not
   overlap the mask register `v0`.
 
+* For a masked tile store, the source register group (`vs3`) may overlap
+  the mask register `v0`. The mask is read from `v0` as for any other
+  masked store, so the contents of `v0` are read both as data elements of
+  `vs3` and as the mask. This matches the base Vector extension, which
+  forbids overlap with `v0` only for the destination of a masked
+  instruction.
+
 A nonzero `vstart` value is legal for tile load/store instructions.
 Execution resumes at element `vstart`. Prestart elements do not access
 memory or vector-register state. On successful completion, `vstart` is
@@ -2765,11 +2772,12 @@ line size for each half. The high-half store is skipped when
 `N_tile ≤ C_half_cols`.
 
 A masked half-store reads its mask from `v0`. When the `m16` accumulator
-is placed at `v0`–`v15`, `v0` is part of the accumulator group and cannot
-also serve as the mask, so a masked (partial-column) half-store is not
-expressible for that placement. Software that needs masked half-stores
-shall place the `m16` accumulator at `v16`–`v31`. (Full-tile half-stores,
-which use no mask, are expressible at either placement.)
+is placed at `v0`–`v15`, `v0` holds accumulator data. A masked half-store
+is still a legal encoding at that placement, but its mask bits are taken
+from the accumulator contents and therefore do not express a column mask.
+Software that needs masked (partial-column) half-stores places the `m16`
+accumulator at `v16`–`v31`. (Full-tile half-stores, which use no mask,
+work at either placement.)
 ====
 
 ==== Example: single-precision floating-point GEMM
@@ -3052,12 +3060,18 @@ A kernel that needs an `m16` accumulator and `m8` inputs simultaneously
 consumes the entire register file: sixteen registers for C and up to
 sixteen for A, B, and any other live vector state.
 
-Because the mask register is `v0`, a masked operation is not expressible
-when the `m16` accumulator is placed at `v0`–`v15`; such a kernel must
-place the accumulator at `v16`–`v31`. Masked IME multiply-accumulate is
-not defined in any case (see the multiply-accumulate descriptions), so
-this affects only masked tile load/store of the `m8` halves around an
-`m16` accumulator.
+Because the mask register is `v0`, an `m16` accumulator placed at
+`v0`–`v15` cannot be combined with a meaningful mask: `v0` holds
+accumulator data. A masked tile load into the low `m8` half (`v0`–`v7`)
+is illegal, because its destination overlaps `v0`. A masked tile load into
+the high half, and a masked tile store of either half, are legal encodings,
+but they take their mask bits from the accumulator contents. Kernels that
+need masked tile load/store of the `m8` halves around an `m16` accumulator
+therefore place the accumulator at `v16`–`v31`. Microscaled
+multiply-accumulate (`vm=0`) reads its scales from `v0` and raises an
+illegal-instruction exception when `vd` overlaps `v0`, so it cannot be
+used with an `m16` accumulator at `v0`–`v15` either. Masked
+multiply-accumulate is not defined.
 ====
 
 [#integrated-matrix-ime-m16-pairing]
