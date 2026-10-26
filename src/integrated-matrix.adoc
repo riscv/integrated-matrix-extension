@@ -580,6 +580,11 @@ updates expressed as sums of outer products.
 
 === Extensions in Zvvm
 
+[#integrated-matrix-vs-status]
+All Integrated Matrix instructions, including the tile load and store
+instructions, follow the `mstatus.VS` and `vsstatus.VS` rules of the base
+Vector extension.
+
 ==== Naming conventions
 
 The Zvvm family uses two levels of naming.
@@ -1133,6 +1138,9 @@ rounding model defined later in <<accumulation-and-rounding-model>>;
 in particular, it is not controlled by the `G`, `psm`, or `rnd`
 parameters of that model.
 
+These integer-input floating-point-accumulate instructions are vector
+floating-point instructions (see <<integrated-matrix-fs-status>>).
+
 [#zvvfmm,reftext=Matrix-multiplication instructions (floating-point)]
 === Zvvfmm: Extension for matrix multiplication on vector register groups interpreted as 2D floating-point matrix tiles
 
@@ -1193,6 +1201,23 @@ Matrix multiply-accumulate instructions cannot be interrupted and resumed:
 they require `vstart` = 0 at the start of execution, and if `vstart` is
 non-zero when such an instruction begins, an illegal-instruction exception
 is raised.
+
+[#integrated-matrix-fs-status]
+The floating-point multiply-accumulate instructions `vfmmacc.vv`,
+`vfwmmacc.vv`, `vfqmmacc.vv`, and `vf8wmmacc.vv`, including their
+microscaled (`vm=0`) forms, and the integer-input floating-point-accumulate
+instructions `vfwimmacc.vv`, `vfqimmacc.vv`, and `vf8wimmacc.vv` are vector
+floating-point instructions as defined by the base Vector extension.
+In particular, the `mstatus.FS` and `vsstatus.FS` rules and the reservation
+of invalid rounding modes in `frm` apply to them.
+The requirement of the base Vector extension that vector floating-point
+instructions be accompanied by the base scalar floating-point extensions
+for the supported vector floating-point element widths does not apply to
+these instructions; their dependencies are exactly those listed in
+<<tbl-extensions>> and <<tbl-mx-extensions>>.
+This holds for `vfwimmacc.vv`, `vfqimmacc.vv`, and `vf8wimmacc.vv` although
+they are encoded as the `vm=0` forms of OPIVV opcodes; the `vm=1` integer
+forms of those opcodes are not floating-point instructions.
 
 The floating-point format of each operand tile is controlled by fields in `vtype`:
 
