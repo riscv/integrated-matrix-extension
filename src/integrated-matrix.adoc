@@ -659,19 +659,19 @@ The extensions specific to microscaling are listed separately in <<mx-extensions
 |Zvvi32mm         ^| Zve32x       | [U]Int32, [U]Int32           | Int32
 |Zvvi32i64mm        ^| Zve64x       | [U]Int32, [U]Int32           | Int64
 |Zvvi64mm         ^| Zve64x       | [U]Int64, [U]Int64           | Int64
-|Zvvofp4ofp8mm ^| Zve32f       | OFP4 (E2M1), OFP4 (E2M1)         | OFP8
+|Zvvofp4ofp8mm ^| Zve32f, Zvfbfa | OFP4 (E2M1), OFP4 (E2M1)         | OFP8
 |Zvvofp4fp16mm    ^| Zve32f       | OFP4 (E2M1), OFP4 (E2M1)         | IEEE binary16
-|Zvvofp4bf16mm ^| Zve32f       | OFP4 (E2M1), OFP4 (E2M1)         | BFloat16
+|Zvvofp4bf16mm ^| Zve32f, Zvfbfa | OFP4 (E2M1), OFP4 (E2M1)         | BFloat16
 |Zvvofp4fp32mm    ^| Zve32f       | OFP4 (E2M1), OFP4 (E2M1)         | IEEE binary32
-|Zvvofp8mm     ^| Zve32f       | OFP8 (E4M3 or E5M2), OFP8 (E4M3 or E5M2) | OFP8
+|Zvvofp8mm     ^| Zve32f, Zvfbfa | OFP8 (E4M3 or E5M2), OFP8 (E4M3 or E5M2) | OFP8
 |Zvvofp8fp16mm    ^| Zve32f       | OFP8 (E4M3 or E5M2), OFP8 (E4M3 or E5M2) | IEEE binary16
-|Zvvofp8bf16mm ^| Zve32f       | OFP8 (E4M3 or E5M2), OFP8 (E4M3 or E5M2) | BFloat16
+|Zvvofp8bf16mm ^| Zve32f, Zvfbfa | OFP8 (E4M3 or E5M2), OFP8 (E4M3 or E5M2) | BFloat16
 |Zvvofp8fp32mm    ^| Zve32f       | OFP8 (E4M3 or E5M2), OFP8 (E4M3 or E5M2) | IEEE binary32
 |Zvvofp8fp64mm    ^| Zve64d       | OFP8 (E4M3 or E5M2), OFP8 (E4M3 or E5M2) | IEEE binary64
 |Zvvfp16mm        ^| Zve32f       | IEEE binary16, IEEE binary16 | IEEE binary16
 |Zvvfp16fp32mm       ^| Zve32f       | IEEE binary16, IEEE binary16 | IEEE binary32
 |Zvvfp16fp64mm       ^| Zve64d       | IEEE binary16, IEEE binary16 | IEEE binary64
-|Zvvbf16mm     ^| Zve32f       | BFloat16, BFloat16           | BFloat16
+|Zvvbf16mm     ^| Zve32f, Zvfbfa | BFloat16, BFloat16           | BFloat16
 |Zvvbf16fp32mm    ^| Zve32f       | BFloat16, BFloat16           | IEEE binary32
 |Zvvbf16fp64mm    ^| Zve64d       | BFloat16, BFloat16           | IEEE binary64
 |Zvvfp32mm        ^| Zve32f       | IEEE binary32, IEEE binary32 | IEEE binary32
@@ -937,6 +937,13 @@ The Zvvm Integrated Matrix floating-point extensions use the _altfmt_ field (as 
 | 1 | 0 | 1 | 1 | _reserved_
 | X | 1 | X | X | _reserved_
 |===
+
+An Integrated Matrix extension that defines an encoding with `altfmt` = 1,
+that is, one with an E5M2 or BFloat16 accumulator, depends on Zvfbfa, which
+provides the `altfmt` field and its bit position in `vtype`. The meaning of
+`altfmt` for the C accumulator at each `SEW` is defined by the table above.
+These dependencies are listed in <<tbl-extensions>> and
+<<tbl-mx-extensions>>.
 
 [#integrated-matrix-altfmt-inputs]
 ==== Alternate formats for inputs (`altfmt_A`, `altfmt_B`)
@@ -6595,7 +6602,9 @@ no non-MX FP-accumulate form (the `vm=1` encoding of those opcodes is the
 existing integer-accumulate `vwmmacc.vv` / `vqmmacc.vv` / `v8wmmacc.vv`).
 The block size, implication, and dependency relationships are listed in <<tbl-mx-extensions>>.
 Every microscaling extension depends on Zve32f, or on Zve64d when its
-accumulator is IEEE binary64. This includes the integer MX extensions,
+accumulator is IEEE binary64, and additionally on Zvfbfa when one of its
+accumulator formats is selected with `altfmt` = 1 (see
+<<integrated-matrix-altfmt>>). This includes the integer MX extensions,
 which do not acquire a dependency through an implied base extension.
 
 [#tbl-mx-extensions]
@@ -6604,36 +6613,36 @@ which do not acquire a dependency through an implied base extension.
 |===
 |Extension          | BS  | Implies          | Dependencies | Multiplicand Types                | Accumulator Type
 
-|Zvvxofp4ofp8mm    ^| 32 ^| Zvvofp4ofp8mm    ^| Zve32f       | MXFP4 (E8M0-scaled OFP4), MXFP4   | OFP8
+|Zvvxofp4ofp8mm    ^| 32 ^| Zvvofp4ofp8mm    ^| Zve32f, Zvfbfa | MXFP4 (E8M0-scaled OFP4), MXFP4   | OFP8
 |Zvvxofp4fp16mm    ^| 32 ^| Zvvofp4fp16mm    ^| Zve32f       | MXFP4, MXFP4                      | IEEE binary16
-|Zvvxofp4bf16mm    ^| 32 ^| Zvvofp4bf16mm    ^| Zve32f       | MXFP4, MXFP4                      | BFloat16
+|Zvvxofp4bf16mm    ^| 32 ^| Zvvofp4bf16mm    ^| Zve32f, Zvfbfa | MXFP4, MXFP4                      | BFloat16
 |Zvvxofp8fp16mm    ^| 32 ^| Zvvofp8fp16mm    ^| Zve32f       | MXFP8, MXFP8                      | IEEE binary16
-|Zvvxofp8bf16mm    ^| 32 ^| Zvvofp8bf16mm    ^| Zve32f       | MXFP8, MXFP8                      | BFloat16
+|Zvvxofp8bf16mm    ^| 32 ^| Zvvofp8bf16mm    ^| Zve32f, Zvfbfa | MXFP8, MXFP8                      | BFloat16
 |Zvvxofp8fp32mm    ^| 32 ^| Zvvofp8fp32mm    ^| Zve32f       | MXFP8, MXFP8                      | IEEE binary32
 |Zvvxofp4fp32mm    ^| 32 ^| Zvvofp4fp32mm    ^| Zve32f       | MXFP4, MXFP4                      | IEEE binary32
 |Zvvxofp8fp64mm    ^| 32 ^| Zvvofp8fp64mm    ^| Zve64d       | MXFP8, MXFP8                      | IEEE binary64
-|Zvvxnofp4ofp8mm   ^| 16 ^| Zvvxofp4ofp8mm   ^| Zve32f       | MXFP4 (E8M0-scaled OFP4), MXFP4   | OFP8
+|Zvvxnofp4ofp8mm   ^| 16 ^| Zvvxofp4ofp8mm   ^| Zve32f, Zvfbfa | MXFP4 (E8M0-scaled OFP4), MXFP4   | OFP8
 |Zvvxnofp4fp16mm   ^| 16 ^| Zvvxofp4fp16mm   ^| Zve32f       | MXFP4, MXFP4                      | IEEE binary16
-|Zvvxnofp4bf16mm   ^| 16 ^| Zvvxofp4bf16mm   ^| Zve32f       | MXFP4, MXFP4                      | BFloat16
+|Zvvxnofp4bf16mm   ^| 16 ^| Zvvxofp4bf16mm   ^| Zve32f, Zvfbfa | MXFP4, MXFP4                      | BFloat16
 |Zvvxnofp8fp16mm   ^| 16 ^| Zvvxofp8fp16mm   ^| Zve32f       | MXFP8, MXFP8                      | IEEE binary16
-|Zvvxnofp8bf16mm   ^| 16 ^| Zvvxofp8bf16mm   ^| Zve32f       | MXFP8, MXFP8                      | BFloat16
+|Zvvxnofp8bf16mm   ^| 16 ^| Zvvxofp8bf16mm   ^| Zve32f, Zvfbfa | MXFP8, MXFP8                      | BFloat16
 |Zvvxnofp8fp32mm   ^| 16 ^| Zvvxofp8fp32mm   ^| Zve32f       | MXFP8, MXFP8                      | IEEE binary32
 |Zvvxnofp4fp32mm   ^| 16 ^| Zvvxofp4fp32mm   ^| Zve32f       | MXFP4, MXFP4                      | IEEE binary32
 |Zvvxnofp8fp64mm   ^| 16 ^| Zvvxofp8fp64mm   ^| Zve64d       | MXFP8, MXFP8                      | IEEE binary64
 
 |Zvvxi8fp16mm      ^| 32 ^| —                ^| Zve32f       | MXINT8 (E8M0-scaled Int8), MXINT8 | IEEE binary16
-|Zvvxi8bf16mm      ^| 32 ^| —                ^| Zve32f       | MXINT8 (E8M0-scaled Int8), MXINT8 | BFloat16
+|Zvvxi8bf16mm      ^| 32 ^| —                ^| Zve32f, Zvfbfa | MXINT8 (E8M0-scaled Int8), MXINT8 | BFloat16
 |Zvvxi8fp32mm      ^| 32 ^| —                ^| Zve32f       | MXINT8 (E8M0-scaled Int8), MXINT8 | IEEE binary32
 |Zvvxi8fp64mm      ^| 32 ^| —                ^| Zve64d       | MXINT8 (E8M0-scaled Int8), MXINT8 | IEEE binary64
 |Zvvxi4fp16mm      ^| 32 ^| —                ^| Zve32f       | MXINT4 (E8M0-scaled Int4), MXINT4 | IEEE binary16
-|Zvvxi4bf16mm      ^| 32 ^| —                ^| Zve32f       | MXINT4 (E8M0-scaled Int4), MXINT4 | BFloat16
+|Zvvxi4bf16mm      ^| 32 ^| —                ^| Zve32f, Zvfbfa | MXINT4 (E8M0-scaled Int4), MXINT4 | BFloat16
 |Zvvxi4fp32mm      ^| 32 ^| —                ^| Zve32f       | MXINT4 (E8M0-scaled Int4), MXINT4 | IEEE binary32
 |Zvvxni8fp16mm     ^| 16 ^| Zvvxi8fp16mm     ^| Zve32f       | MXINT8 (E8M0-scaled Int8), MXINT8 | IEEE binary16
-|Zvvxni8bf16mm     ^| 16 ^| Zvvxi8bf16mm     ^| Zve32f       | MXINT8 (E8M0-scaled Int8), MXINT8 | BFloat16
+|Zvvxni8bf16mm     ^| 16 ^| Zvvxi8bf16mm     ^| Zve32f, Zvfbfa | MXINT8 (E8M0-scaled Int8), MXINT8 | BFloat16
 |Zvvxni8fp32mm     ^| 16 ^| Zvvxi8fp32mm     ^| Zve32f       | MXINT8 (E8M0-scaled Int8), MXINT8 | IEEE binary32
 |Zvvxni8fp64mm     ^| 16 ^| Zvvxi8fp64mm     ^| Zve64d       | MXINT8 (E8M0-scaled Int8), MXINT8 | IEEE binary64
 |Zvvxni4fp16mm     ^| 16 ^| Zvvxi4fp16mm     ^| Zve32f       | MXINT4 (E8M0-scaled Int4), MXINT4 | IEEE binary16
-|Zvvxni4bf16mm     ^| 16 ^| Zvvxi4bf16mm     ^| Zve32f       | MXINT4 (E8M0-scaled Int4), MXINT4 | BFloat16
+|Zvvxni4bf16mm     ^| 16 ^| Zvvxi4bf16mm     ^| Zve32f, Zvfbfa | MXINT4 (E8M0-scaled Int4), MXINT4 | BFloat16
 |Zvvxni4fp32mm     ^| 16 ^| Zvvxi4fp32mm     ^| Zve32f       | MXINT4 (E8M0-scaled Int4), MXINT4 | IEEE binary32
 |===
 
