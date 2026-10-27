@@ -241,6 +241,16 @@ Arguments `A` and `B` point to input panels already packed for the nonzero
 vector registers `v16` through `v31`. Arguments `M`, `N`, and `K` define
 the shape of the matrix multiply, following BLAS convention.
 
+This assembly-oriented example requires `altfmt_A = altfmt_B = 0` on
+entry for its binary64 input operands. If either field was set by earlier
+code, the caller must clear both fields with a register-form `vsetvl`
+before entering the kernel, as described in
+<<integrated-matrix-altfmt-32-64>>. The initial `vsetvli` establishes the
+base vector configuration but does not clear these retained input-format
+fields. This is an explicit entry precondition of this mixed
+assembly/intrinsic example, not a caller-maintained format-state
+requirement of the typed computational intrinsics used below.
+
 The `requested_klen` argument is the exact semantic `KLEN` value used
 to pack both panels and must be in {`1`, `2`, `4`, `8`, `16`, `32`, `64`}.
 After establishing `SEW=64` and `LMUL=1`, the routine submits that request
@@ -272,6 +282,7 @@ void microdgemm
     size_t   requested_klen
 )
 {
+    /* Entry precondition: vtype.altfmt_A = vtype.altfmt_B = 0. */
     vsetvli(5, 0, 64, 1, true, true);                                   // <1>
 
     assert(requested_klen != 0);
@@ -1376,6 +1387,11 @@ updates expressed as sums of outer products.
 
 === Extensions in Zvvm
 
+[#integrated-matrix-vs-status]
+All Integrated Matrix instructions, including the tile load and store
+instructions, follow the `mstatus.VS` and `vsstatus.VS` rules of the base
+Vector extension.
+
 ==== Naming conventions
 
 The Zvvm family uses two levels of naming.
@@ -1455,19 +1471,19 @@ The extensions specific to microscaling are listed separately in <<mx-extensions
 |Zvvi32mm         ^| Zve32x       | [U]Int32, [U]Int32           | Int32
 |Zvvi32i64mm        ^| Zve64x       | [U]Int32, [U]Int32           | Int64
 |Zvvi64mm         ^| Zve64x       | [U]Int64, [U]Int64           | Int64
-|Zvvofp4ofp8mm ^| Zve32f       | OFP4 (E2M1), OFP4 (E2M1)         | OFP8
+|Zvvofp4ofp8mm ^| Zve32f, Zvfbfa | OFP4 (E2M1), OFP4 (E2M1)         | OFP8
 |Zvvofp4fp16mm    ^| Zve32f       | OFP4 (E2M1), OFP4 (E2M1)         | IEEE binary16
-|Zvvofp4bf16mm ^| Zve32f       | OFP4 (E2M1), OFP4 (E2M1)         | BFloat16
+|Zvvofp4bf16mm ^| Zve32f, Zvfbfa | OFP4 (E2M1), OFP4 (E2M1)         | BFloat16
 |Zvvofp4fp32mm    ^| Zve32f       | OFP4 (E2M1), OFP4 (E2M1)         | IEEE binary32
-|Zvvofp8mm     ^| Zve32f       | OFP8 (E4M3 or E5M2), OFP8 (E4M3 or E5M2) | OFP8
+|Zvvofp8mm     ^| Zve32f, Zvfbfa | OFP8 (E4M3 or E5M2), OFP8 (E4M3 or E5M2) | OFP8
 |Zvvofp8fp16mm    ^| Zve32f       | OFP8 (E4M3 or E5M2), OFP8 (E4M3 or E5M2) | IEEE binary16
-|Zvvofp8bf16mm ^| Zve32f       | OFP8 (E4M3 or E5M2), OFP8 (E4M3 or E5M2) | BFloat16
+|Zvvofp8bf16mm ^| Zve32f, Zvfbfa | OFP8 (E4M3 or E5M2), OFP8 (E4M3 or E5M2) | BFloat16
 |Zvvofp8fp32mm    ^| Zve32f       | OFP8 (E4M3 or E5M2), OFP8 (E4M3 or E5M2) | IEEE binary32
 |Zvvofp8fp64mm    ^| Zve64d       | OFP8 (E4M3 or E5M2), OFP8 (E4M3 or E5M2) | IEEE binary64
 |Zvvfp16mm        ^| Zve32f       | IEEE binary16, IEEE binary16 | IEEE binary16
 |Zvvfp16fp32mm       ^| Zve32f       | IEEE binary16, IEEE binary16 | IEEE binary32
 |Zvvfp16fp64mm       ^| Zve64d       | IEEE binary16, IEEE binary16 | IEEE binary64
-|Zvvbf16mm     ^| Zve32f       | BFloat16, BFloat16           | BFloat16
+|Zvvbf16mm     ^| Zve32f, Zvfbfa | BFloat16, BFloat16           | BFloat16
 |Zvvbf16fp32mm    ^| Zve32f       | BFloat16, BFloat16           | IEEE binary32
 |Zvvbf16fp64mm    ^| Zve64d       | BFloat16, BFloat16           | IEEE binary64
 |Zvvfp32mm        ^| Zve32f       | IEEE binary32, IEEE binary32 | IEEE binary32
@@ -1554,7 +1570,10 @@ written as a literal zero.
 The `bs`, `altfmt_A`, and `altfmt_B` fields are written as supplied
 by `rs2`. The legality of particular `bs`, `altfmt_A`, and
 `altfmt_B` combinations is checked by the IME instruction that
-uses those fields.
+uses those fields. In particular, `altfmt_A` and `altfmt_B` values
+left set by a sub-word floating-point input kernel are not cleared by
+`vsetvli` or `vsetivli`; see <<integrated-matrix-altfmt-32-64>> for the
+consequence when a later instruction has binary32 or binary64 inputs.
 
 [NOTE]
 ====
@@ -1739,6 +1758,13 @@ The Zvvm Integrated Matrix floating-point extensions use the _altfmt_ field (as 
 | X | 1 | X | X | _reserved_
 |===
 
+An Integrated Matrix extension that defines an encoding with `altfmt` = 1,
+that is, one with an E5M2 or BFloat16 accumulator, depends on Zvfbfa, which
+provides the `altfmt` field and its bit position in `vtype`. The meaning of
+`altfmt` for the C accumulator at each `SEW` is defined by the table above.
+These dependencies are listed in <<tbl-extensions>> and
+<<tbl-mx-extensions>>.
+
 [#integrated-matrix-altfmt-inputs]
 ==== Alternate formats for inputs (`altfmt_A`, `altfmt_B`)
 
@@ -1757,7 +1783,8 @@ a full `vtype` value in `rs2`, and are preserved by `vsetvli` and
 ===== Floating-point instructions
 
 For floating-point multiply-accumulate instructions, `altfmt_A` and `altfmt_B` select the floating-point format of the corresponding input operand.
-These fields are only significant for sub-word floating-point input operands (OFP8, 16-bit FP); for IEEE binary32 and IEEE binary64 inputs they are ignored.
+These fields select a format only for sub-word floating-point input operands (OFP8, 16-bit FP).
+For IEEE binary32 and IEEE binary64 inputs only `altfmt_A` = `altfmt_B` = 0 is defined; the encodings `altfmt_A` = 1 and `altfmt_B` = 1 are _reserved_ at these widths and raise an illegal-instruction exception (see <<integrated-matrix-altfmt-32-64>>).
 
 .FP input data type encoding (altfmt_A or altfmt_B × input element width)
 [cols="1,2,2"]
@@ -1771,6 +1798,10 @@ These fields are only significant for sub-word floating-point input operands (OF
 | 1 | 8-bit | E5M2 (OFP8)
 | 0 | 16-bit | IEEE binary16
 | 1 | 16-bit | BFloat16
+| 0 | 32-bit | IEEE binary32
+| 1 | 32-bit | _reserved_
+| 0 | 64-bit | IEEE binary64
+| 1 | 64-bit | _reserved_
 |===
 
 ===== Integer instructions
@@ -1973,6 +2004,9 @@ rounding model defined later in <<accumulation-and-rounding-model>>;
 in particular, it is not controlled by the `G`, `psm`, or `rnd`
 parameters of that model.
 
+These integer-input floating-point-accumulate instructions are vector
+floating-point instructions (see <<integrated-matrix-fs-status>>).
+
 [#zvvfmm,reftext=Matrix-multiplication instructions (floating-point)]
 === Zvvfmm: Extension for matrix multiplication on vector register groups interpreted as 2D floating-point matrix tiles
 
@@ -2034,6 +2068,23 @@ they require `vstart` = 0 at the start of execution, and if `vstart` is
 nonzero when such an instruction begins, an illegal-instruction exception
 is raised.
 
+[#integrated-matrix-fs-status]
+The floating-point multiply-accumulate instructions `vfmmacc.vv`,
+`vfwmmacc.vv`, `vfqmmacc.vv`, and `vf8wmmacc.vv`, including their
+microscaled (`vm=0`) forms, and the integer-input floating-point-accumulate
+instructions `vfwimmacc.vv`, `vfqimmacc.vv`, and `vf8wimmacc.vv` are vector
+floating-point instructions as defined by the base Vector extension.
+In particular, the `mstatus.FS` and `vsstatus.FS` rules and the reservation
+of invalid rounding modes in `frm` apply to them.
+The requirement of the base Vector extension that vector floating-point
+instructions be accompanied by the base scalar floating-point extensions
+for the supported vector floating-point element widths does not apply to
+these instructions; their dependencies are exactly those listed in
+<<tbl-extensions>> and <<tbl-mx-extensions>>.
+This holds for `vfwimmacc.vv`, `vfqimmacc.vv`, and `vf8wimmacc.vv` although
+they are encoded as the `vm=0` forms of OPIVV opcodes; the `vm=1` integer
+forms of those opcodes are not floating-point instructions.
+
 The floating-point format of each operand tile is controlled by fields in `vtype`:
 
 * `altfmt_A` and `altfmt_B` select the FP format for A and B input elements, interpreted in conjunction with the input element width SEW÷W (see <<integrated-matrix-altfmt-inputs>>).
@@ -2044,8 +2095,10 @@ The floating-point format of each operand tile is controlled by fields in `vtype
 [#mixed-format-inputs]
 ==== Mixed-format inputs (`altfmt_A` ≠ `altfmt_B`)
 
-Mixed-format inputs (`altfmt_A` ≠ `altfmt_B`) are permitted for all
-floating-point multiply-accumulate instructions.
+Mixed-format inputs (`altfmt_A` ≠ `altfmt_B`) are permitted only for the
+input-width and format combinations defined in <<tbl-fp-encoding-map>>.
+For 32- and 64-bit inputs, both fields must be zero as specified in
+<<integrated-matrix-altfmt-32-64>>.
 Each A×B product is defined by the exact mathematical product of the corresponding
 input values, and the floating-point result of the overall matrix multiply-accumulate
 operation is determined according to <<arithmetic-considerations>>.
@@ -2159,11 +2212,33 @@ the instruction raises an illegal-instruction exception.
 
 If the required extensions are not both present, the instruction raises an illegal-instruction exception.
 
+[#integrated-matrix-altfmt-32-64]
 ===== 32-bit and wider inputs
 
-For IEEE binary32 and IEEE binary64 inputs, `altfmt_A` and `altfmt_B` are
-ignored (there is only one format per width), so mixed-format operation does
-not apply.
+For IEEE binary32 and IEEE binary64 inputs there is only one input format
+per width, selected by `altfmt_A` = 0 and `altfmt_B` = 0. The encodings
+`altfmt_A` = 1 and `altfmt_B` = 1 are _reserved_ at these widths: a
+floating-point multiply-accumulate instruction whose input element width is
+32 or 64 bits raises an illegal-instruction exception if either field is
+nonzero. Mixed-format operation therefore does not apply.
+
+[NOTE]
+====
+These encodings are reserved for future input formats at 32 and 64 bits
+(for example, a reduced-precision 32-bit format or a complex element
+type); they are not don't-care bits. This matches the treatment of
+`altfmt_A`/`altfmt_B` for 4-bit inputs and of the output `altfmt` field
+for 32- and 64-bit accumulators (<<integrated-matrix-altfmt>>), and it
+differs deliberately from `bs`, which has no effect on instructions that
+do not perform microscaling (<<integrated-matrix-bs>>).
+
+Because `vsetvli` and `vsetivli` retain `altfmt_A` and `altfmt_B`
+(<<integrated-matrix-vtype-config>>), software that has set either field
+for a sub-word input kernel must clear both fields with a register-form
+`vsetvl` before executing a floating-point multiply-accumulate with
+binary32 or binary64 inputs. The reset value of both fields is 0, so no
+clearing is needed if no earlier code set them.
+====
 
 Final accumulation into the C accumulator format uses the dynamic rounding mode from `frm`.
 Any intermediate grouping, partial-sum formation, and optional rounding of partial sums follow <<arithmetic-considerations>>.
@@ -3395,6 +3470,13 @@ The following rules apply to all tile load/store instructions:
 * For a masked tile load, the destination register group shall not
   overlap the mask register `v0`.
 
+* For a masked tile store, the source register group (`vs3`) may overlap
+  the mask register `v0`. The mask is read from `v0` as for any other
+  masked store, so the contents of `v0` are read both as data elements of
+  `vs3` and as the mask. This matches the base Vector extension, which
+  forbids overlap with `v0` only for the destination of a masked
+  instruction.
+
 A nonzero `vstart` value is legal for tile load/store instructions.
 Execution resumes at element `vstart`. Prestart elements do not access
 memory or vector-register state. On successful completion, `vstart` is
@@ -3808,11 +3890,13 @@ line size for each half. The high-half store is skipped when
 `NLEN ≤ C_half_cols`.
 
 A masked half-store reads its mask from `v0`. When the `m16` accumulator
-is placed at `v0`–`v15`, `v0` is part of the accumulator group and cannot
-also serve as the mask, so a masked (partial-column) half-store is not
-expressible for that placement. Software that needs masked half-stores
-shall place the `m16` accumulator at `v16`–`v31`. (Full-tile half-stores,
-which use no mask, are expressible at either placement.)
+is placed at `v0`–`v15`, `v0` holds accumulator data. A masked half-store
+is still a legal encoding at that placement, but its mask bits are taken
+from the accumulator contents. Software cannot supply an independently
+chosen column mask in `v0` while retaining those accumulator contents.
+Kernels that require an independent mask for partial-column half-stores
+therefore place the `m16` accumulator at `v16`–`v31`. (Full-tile
+half-stores, which use no mask, work at either placement.)
 ====
 
 ==== Example: single-precision floating-point GEMM
@@ -3827,6 +3911,12 @@ The configuration uses SEW=32, LMUL=1, and `KLEN`=4, giving K_eff = 4 and
 `MLEN = VLEN/128`. In the pseudocode, `mlen`, `nlen`, and `nlen_max`
 hold `MLEN`, `NLEN`, and `NLEN_MAX`; `M`, `N`, and `K` remain the
 application-matrix dimensions.
+This assembly-style pseudocode assumes `altfmt_A = altfmt_B = 0` on
+entry. If necessary, establish that state using a register-form `vsetvl`
+before this sequence; changing `SEW` with `vsetvli` or `vsetivli` does not
+clear those fields. The configuration operations in the sequence must
+retain these zero input-format fields, in addition to selecting the
+binary32 accumulator format (`altfmt=0`).
 Matrices A and C are stored row-major; matrix B is stored column-major, allowing its columns
 to be loaded directly into the column-major register layout of
 B~tile~^T^.
@@ -3837,6 +3927,8 @@ B~tile~^T^.
 //                                 × B_matrix (K×N, column-major, stride ldb)
 //
 // Precondition: vtype can be configured for SEW=32, LMUL=1, klen=4.
+// Precondition: vtype.altfmt_A = vtype.altfmt_B = 0 on entry.
+// Configuration changes retain these zero fields and select altfmt=0.
 // Precondition: EMUL_C is one of 1, 2, 4, or 8.
 // Precondition: K is a multiple of K_eff (= klen × LMUL = 4).
 // For simplicity, this example assumes M is a multiple of mlen.
@@ -4080,6 +4172,16 @@ to execute with that geometry. The intrinsic does not depend on a selected
 and a different geometry shall not be silently substituted because a
 configuration write canonicalizes an unsupported request.
 
+The compiler shall also establish the input and accumulator formats
+specified by the intrinsic's types and format qualifiers. In particular,
+a floating-point-input intrinsic with binary32 or binary64 inputs requires
+`altfmt_A = altfmt_B = 0`; these fields shall not be inherited from an
+unrelated preceding operation. The accumulator format must likewise use
+its defined `altfmt` encoding. Callers do not have to establish or preserve
+these format fields before a typed computational intrinsic. A
+SEW-qualified KLEN selector returns a geometry choice; it is not a promise
+that any input-format or accumulator-format state persists for later calls.
+
 This rule applies to long-form and overloaded computational intrinsics,
 including microscaled forms. The A/B types and any `_lm{N}` qualifier
 continue to specify the input `LMUL`; they do not change the `KLEN`
@@ -4156,12 +4258,18 @@ A kernel that needs an `m16` accumulator and `m8` inputs simultaneously
 consumes the entire register file: sixteen registers for C and up to
 sixteen for A, B, and any other live vector state.
 
-Because the mask register is `v0`, a masked operation is not expressible
-when the `m16` accumulator is placed at `v0`–`v15`; such a kernel must
-place the accumulator at `v16`–`v31`. Masked IME multiply-accumulate is
-not defined in any case (see the multiply-accumulate descriptions), so
-this affects only masked tile load/store of the `m8` halves around an
-`m16` accumulator.
+Because the mask register is `v0`, an `m16` accumulator placed at
+`v0`–`v15` cannot retain its contents while also supplying an independent
+mask in `v0`. A masked tile load into the low `m8` half (`v0`–`v7`)
+is illegal, because its destination overlaps `v0`. A masked tile load into
+the high half, and a masked tile store of either half, are legal encodings,
+but they take their mask bits from the accumulator contents. Kernels that
+need an independently chosen mask for tile load/store of the `m8` halves
+around an `m16` accumulator therefore place the accumulator at
+`v16`–`v31`. Microscaled multiply-accumulate (`vm=0`) reads its scales
+from `v0` and raises an illegal-instruction exception when `vd` overlaps
+`v0`, so it cannot be used with an `m16` accumulator at `v0`–`v15`
+either. Masked multiply-accumulate is not defined.
 ====
 
 [#integrated-matrix-ime-m16-pairing]
@@ -6088,8 +6196,9 @@ val check_int_encoding_legality :
 // any extension named by that row is not implemented. A row that
 // names more than one extension requires all named extensions.
 //
-// Fields identified as ignored by the table do not participate in
-// row selection.
+// Every field in the argument list participates in row selection at
+// every input width. In particular, altfmt_A = 1 or altfmt_B = 1 with
+// 32- or 64-bit inputs selects a reserved row.
 val check_fp_encoding_legality :
   (int, int, bit, bit, bit) -> unit
 
@@ -8061,48 +8170,53 @@ extension: for example, Zvvxofp4fp16mm implies Zvvofp4fp16mm, which provides
 the underlying OFP4→FP16 instruction support.
 Only widening floating-point multiply-accumulate instructions define FP microscaling variants, and only for narrow input formats (OFP4, OFP8).
 The integer MX extensions (`Zvvxi*mm`, `Zvvxni*mm`) do not imply a
-base extension: `vfwimmacc.vv` and `vfqimmacc.vv` have no non-MX
-FP-accumulate form (the `vm=1` encoding of those opcodes is the existing
-integer-accumulate `vwmmacc.vv` / `vqmmacc.vv`).
-The block size and implication relationships are listed in <<tbl-mx-extensions>>.
+base extension: `vfwimmacc.vv`, `vfqimmacc.vv`, and `vf8wimmacc.vv` have
+no non-MX FP-accumulate form (the `vm=1` encoding of those opcodes is the
+existing integer-accumulate `vwmmacc.vv` / `vqmmacc.vv` / `v8wmmacc.vv`).
+The block size, implication, and dependency relationships are listed in <<tbl-mx-extensions>>.
+Every microscaling extension depends on Zve32f, or on Zve64d when its
+accumulator is IEEE binary64, and additionally on Zvfbfa when one of its
+accumulator formats is selected with `altfmt` = 1 (see
+<<integrated-matrix-altfmt>>). This includes the integer MX extensions,
+which do not acquire a dependency through an implied base extension.
 
 [#tbl-mx-extensions]
 .Microscaling extensions
-[cols="1,1,1,3,3", options="header"]
+[cols="1,1,1,1,3,3", options="header"]
 |===
-|Extension          | BS  | Implies          | Multiplicand Types                | Accumulator Type
+|Extension          | BS  | Implies          | Dependencies | Multiplicand Types                | Accumulator Type
 
-|Zvvxofp4ofp8mm    ^| 32 ^| Zvvofp4ofp8mm    | MXFP4 (E8M0-scaled OFP4), MXFP4   | OFP8
-|Zvvxofp4fp16mm    ^| 32 ^| Zvvofp4fp16mm    | MXFP4, MXFP4                      | IEEE binary16
-|Zvvxofp4bf16mm    ^| 32 ^| Zvvofp4bf16mm    | MXFP4, MXFP4                      | BFloat16
-|Zvvxofp8fp16mm    ^| 32 ^| Zvvofp8fp16mm    | MXFP8, MXFP8                      | IEEE binary16
-|Zvvxofp8bf16mm    ^| 32 ^| Zvvofp8bf16mm    | MXFP8, MXFP8                      | BFloat16
-|Zvvxofp8fp32mm    ^| 32 ^| Zvvofp8fp32mm    | MXFP8, MXFP8                      | IEEE binary32
-|Zvvxofp4fp32mm    ^| 32 ^| Zvvofp4fp32mm    | MXFP4, MXFP4                      | IEEE binary32
-|Zvvxofp8fp64mm    ^| 32 ^| Zvvofp8fp64mm    | MXFP8, MXFP8                      | IEEE binary64
-|Zvvxnofp4ofp8mm   ^| 16 ^| Zvvxofp4ofp8mm   | MXFP4 (E8M0-scaled OFP4), MXFP4   | OFP8
-|Zvvxnofp4fp16mm   ^| 16 ^| Zvvxofp4fp16mm   | MXFP4, MXFP4                      | IEEE binary16
-|Zvvxnofp4bf16mm   ^| 16 ^| Zvvxofp4bf16mm   | MXFP4, MXFP4                      | BFloat16
-|Zvvxnofp8fp16mm   ^| 16 ^| Zvvxofp8fp16mm   | MXFP8, MXFP8                      | IEEE binary16
-|Zvvxnofp8bf16mm   ^| 16 ^| Zvvxofp8bf16mm   | MXFP8, MXFP8                      | BFloat16
-|Zvvxnofp8fp32mm   ^| 16 ^| Zvvxofp8fp32mm   | MXFP8, MXFP8                      | IEEE binary32
-|Zvvxnofp4fp32mm   ^| 16 ^| Zvvxofp4fp32mm   | MXFP4, MXFP4                      | IEEE binary32
-|Zvvxnofp8fp64mm   ^| 16 ^| Zvvxofp8fp64mm   | MXFP8, MXFP8                      | IEEE binary64
+|Zvvxofp4ofp8mm    ^| 32 ^| Zvvofp4ofp8mm    ^| Zve32f, Zvfbfa | MXFP4 (E8M0-scaled OFP4), MXFP4   | OFP8
+|Zvvxofp4fp16mm    ^| 32 ^| Zvvofp4fp16mm    ^| Zve32f        | MXFP4, MXFP4                      | IEEE binary16
+|Zvvxofp4bf16mm    ^| 32 ^| Zvvofp4bf16mm    ^| Zve32f, Zvfbfa | MXFP4, MXFP4                      | BFloat16
+|Zvvxofp8fp16mm    ^| 32 ^| Zvvofp8fp16mm    ^| Zve32f        | MXFP8, MXFP8                      | IEEE binary16
+|Zvvxofp8bf16mm    ^| 32 ^| Zvvofp8bf16mm    ^| Zve32f, Zvfbfa | MXFP8, MXFP8                      | BFloat16
+|Zvvxofp8fp32mm    ^| 32 ^| Zvvofp8fp32mm    ^| Zve32f        | MXFP8, MXFP8                      | IEEE binary32
+|Zvvxofp4fp32mm    ^| 32 ^| Zvvofp4fp32mm    ^| Zve32f        | MXFP4, MXFP4                      | IEEE binary32
+|Zvvxofp8fp64mm    ^| 32 ^| Zvvofp8fp64mm    ^| Zve64d        | MXFP8, MXFP8                      | IEEE binary64
+|Zvvxnofp4ofp8mm   ^| 16 ^| Zvvxofp4ofp8mm   ^| Zve32f, Zvfbfa | MXFP4 (E8M0-scaled OFP4), MXFP4   | OFP8
+|Zvvxnofp4fp16mm   ^| 16 ^| Zvvxofp4fp16mm   ^| Zve32f        | MXFP4, MXFP4                      | IEEE binary16
+|Zvvxnofp4bf16mm   ^| 16 ^| Zvvxofp4bf16mm   ^| Zve32f, Zvfbfa | MXFP4, MXFP4                      | BFloat16
+|Zvvxnofp8fp16mm   ^| 16 ^| Zvvxofp8fp16mm   ^| Zve32f        | MXFP8, MXFP8                      | IEEE binary16
+|Zvvxnofp8bf16mm   ^| 16 ^| Zvvxofp8bf16mm   ^| Zve32f, Zvfbfa | MXFP8, MXFP8                      | BFloat16
+|Zvvxnofp8fp32mm   ^| 16 ^| Zvvxofp8fp32mm   ^| Zve32f        | MXFP8, MXFP8                      | IEEE binary32
+|Zvvxnofp4fp32mm   ^| 16 ^| Zvvxofp4fp32mm   ^| Zve32f        | MXFP4, MXFP4                      | IEEE binary32
+|Zvvxnofp8fp64mm   ^| 16 ^| Zvvxofp8fp64mm   ^| Zve64d        | MXFP8, MXFP8                      | IEEE binary64
 
-|Zvvxi8fp16mm      ^| 32 ^| —                | MXINT8 (E8M0-scaled Int8), MXINT8 | IEEE binary16
-|Zvvxi8bf16mm      ^| 32 ^| —                | MXINT8 (E8M0-scaled Int8), MXINT8 | BFloat16
-|Zvvxi8fp32mm      ^| 32 ^| —                | MXINT8 (E8M0-scaled Int8), MXINT8 | IEEE binary32
-|Zvvxi8fp64mm      ^| 32 ^| —                | MXINT8 (E8M0-scaled Int8), MXINT8 | IEEE binary64
-|Zvvxi4fp16mm      ^| 32 ^| —                | MXINT4 (E8M0-scaled Int4), MXINT4 | IEEE binary16
-|Zvvxi4bf16mm      ^| 32 ^| —                | MXINT4 (E8M0-scaled Int4), MXINT4 | BFloat16
-|Zvvxi4fp32mm      ^| 32 ^| —                | MXINT4 (E8M0-scaled Int4), MXINT4 | IEEE binary32
-|Zvvxni8fp16mm     ^| 16 ^| Zvvxi8fp16mm     | MXINT8 (E8M0-scaled Int8), MXINT8 | IEEE binary16
-|Zvvxni8bf16mm     ^| 16 ^| Zvvxi8bf16mm     | MXINT8 (E8M0-scaled Int8), MXINT8 | BFloat16
-|Zvvxni8fp32mm     ^| 16 ^| Zvvxi8fp32mm     | MXINT8 (E8M0-scaled Int8), MXINT8 | IEEE binary32
-|Zvvxni8fp64mm     ^| 16 ^| Zvvxi8fp64mm     | MXINT8 (E8M0-scaled Int8), MXINT8 | IEEE binary64
-|Zvvxni4fp16mm     ^| 16 ^| Zvvxi4fp16mm     | MXINT4 (E8M0-scaled Int4), MXINT4 | IEEE binary16
-|Zvvxni4bf16mm     ^| 16 ^| Zvvxi4bf16mm     | MXINT4 (E8M0-scaled Int4), MXINT4 | BFloat16
-|Zvvxni4fp32mm     ^| 16 ^| Zvvxi4fp32mm     | MXINT4 (E8M0-scaled Int4), MXINT4 | IEEE binary32
+|Zvvxi8fp16mm      ^| 32 ^| —                ^| Zve32f        | MXINT8 (E8M0-scaled Int8), MXINT8 | IEEE binary16
+|Zvvxi8bf16mm      ^| 32 ^| —                ^| Zve32f, Zvfbfa | MXINT8 (E8M0-scaled Int8), MXINT8 | BFloat16
+|Zvvxi8fp32mm      ^| 32 ^| —                ^| Zve32f        | MXINT8 (E8M0-scaled Int8), MXINT8 | IEEE binary32
+|Zvvxi8fp64mm      ^| 32 ^| —                ^| Zve64d        | MXINT8 (E8M0-scaled Int8), MXINT8 | IEEE binary64
+|Zvvxi4fp16mm      ^| 32 ^| —                ^| Zve32f        | MXINT4 (E8M0-scaled Int4), MXINT4 | IEEE binary16
+|Zvvxi4bf16mm      ^| 32 ^| —                ^| Zve32f, Zvfbfa | MXINT4 (E8M0-scaled Int4), MXINT4 | BFloat16
+|Zvvxi4fp32mm      ^| 32 ^| —                ^| Zve32f        | MXINT4 (E8M0-scaled Int4), MXINT4 | IEEE binary32
+|Zvvxni8fp16mm     ^| 16 ^| Zvvxi8fp16mm     ^| Zve32f        | MXINT8 (E8M0-scaled Int8), MXINT8 | IEEE binary16
+|Zvvxni8bf16mm     ^| 16 ^| Zvvxi8bf16mm     ^| Zve32f, Zvfbfa | MXINT8 (E8M0-scaled Int8), MXINT8 | BFloat16
+|Zvvxni8fp32mm     ^| 16 ^| Zvvxi8fp32mm     ^| Zve32f        | MXINT8 (E8M0-scaled Int8), MXINT8 | IEEE binary32
+|Zvvxni8fp64mm     ^| 16 ^| Zvvxi8fp64mm     ^| Zve64d        | MXINT8 (E8M0-scaled Int8), MXINT8 | IEEE binary64
+|Zvvxni4fp16mm     ^| 16 ^| Zvvxi4fp16mm     ^| Zve32f        | MXINT4 (E8M0-scaled Int4), MXINT4 | IEEE binary16
+|Zvvxni4bf16mm     ^| 16 ^| Zvvxi4bf16mm     ^| Zve32f, Zvfbfa | MXINT4 (E8M0-scaled Int4), MXINT4 | BFloat16
+|Zvvxni4fp32mm     ^| 16 ^| Zvvxi4fp32mm     ^| Zve32f        | MXINT4 (E8M0-scaled Int4), MXINT4 | IEEE binary32
 |===
 
 NOTE: See <<Block size selection>> for LMUL restrictions when `bs=1`.
@@ -8143,11 +8257,12 @@ that names more than one extension requires all named extensions. For
 example, a mixed FP16 and BF16 row that names both `Zvvfp16fp32mm` and
 `Zvvbf16fp32mm` requires both extensions.
 
-Where the table indicates that an `altfmt_A` or `altfmt_B` field is ignored,
-either value of that field selects the same row. The `bs` field does not
-participate in the selection of a `vm=1` row and has no effect on its
-legality (<<integrated-matrix-bs>>); it participates only in the selection
-of the `MX BS=32 (vm=0)` and `MX BS=16 (vm=0)` cells.
+A `×` in a field column means that the row applies for either value of
+that field. `×` appears only in `_reserved_` rows; every non-reserved row
+specifies `altfmt_A`, `altfmt_B`, and `altfmt` explicitly. The `bs` field
+does not participate in the selection of a `vm=1` row and has no effect on
+its legality (<<integrated-matrix-bs>>); it participates only in the
+selection of the `MX BS=32 (vm=0)` and `MX BS=16 (vm=0)` cells.
 
 For `vm=1`, the `Extension` column identifies the extension or extensions
 required by the selected row.
@@ -8216,10 +8331,14 @@ Implementation of the extension or extensions named in the unscaled
 | vfmmacc  | 16 | 16 | 0 | FP16  | 1 | BF16  | 1 | BF16  | Zvvfp16mm, Zvvbf16mm | — | —
 | vfmmacc  | 16 | 16 | 1 | BF16  | 0 | FP16  | 0 | FP16  | Zvvfp16mm, Zvvbf16mm | — | —
 | vfmmacc  | 16 | 16 | 1 | BF16  | 0 | FP16  | 1 | BF16  | Zvvfp16mm, Zvvbf16mm | — | —
-| vfmmacc  | 32 | 32 | × | FP32  | × | FP32  | 0 | FP32  | Zvvfp32mm            | — | —
-| vfmmacc  | 32 | 32 | × | FP32  | × | FP32  | 1 | —     | _reserved_           | — | —
-| vfmmacc  | 64 | 64 | × | FP64  | × | FP64  | 0 | FP64  | Zvvfp64mm            | — | —
-| vfmmacc  | 64 | 64 | × | FP64  | × | FP64  | 1 | —     | _reserved_           | — | —
+| vfmmacc  | 32 | 32 | 0 | FP32  | 0 | FP32  | 0 | FP32  | Zvvfp32mm            | — | —
+| vfmmacc  | 32 | 32 | 0 | FP32  | 0 | FP32  | 1 | —     | _reserved_           | — | —
+| vfmmacc  | 32 | 32 | 1 | —     | × | —     | × | —     | _reserved_           | — | —
+| vfmmacc  | 32 | 32 | × | —     | 1 | —     | × | —     | _reserved_           | — | —
+| vfmmacc  | 64 | 64 | 0 | FP64  | 0 | FP64  | 0 | FP64  | Zvvfp64mm            | — | —
+| vfmmacc  | 64 | 64 | 0 | FP64  | 0 | FP64  | 1 | —     | _reserved_           | — | —
+| vfmmacc  | 64 | 64 | 1 | —     | × | —     | × | —     | _reserved_           | — | —
+| vfmmacc  | 64 | 64 | × | —     | 1 | —     | × | —     | _reserved_           | — | —
 
 12+^e| *vfwmmacc.vv (W=2)*
 
@@ -8240,8 +8359,10 @@ Implementation of the extension or extensions named in the unscaled
 | vfwmmacc | 32 | 16 | 1 | BF16  | 1 | BF16  | 1 | —     | _reserved_     | —                 | —
 | vfwmmacc | 32 | 16 | 0 | FP16  | 1 | BF16  | 0 | FP32  | Zvvfp16fp32mm, Zvvbf16fp32mm | —         | —
 | vfwmmacc | 32 | 16 | 1 | BF16  | 0 | FP16  | 0 | FP32  | Zvvfp16fp32mm, Zvvbf16fp32mm | —         | —
-| vfwmmacc | 64 | 32 | × | FP32  | × | FP32  | 0 | FP64  | Zvvfp32fp64mm       | —                 | —
-| vfwmmacc | 64 | 32 | × | FP32  | × | FP32  | 1 | —     | _reserved_     | —                 | —
+| vfwmmacc | 64 | 32 | 0 | FP32  | 0 | FP32  | 0 | FP64  | Zvvfp32fp64mm       | —                 | —
+| vfwmmacc | 64 | 32 | 0 | FP32  | 0 | FP32  | 1 | —     | _reserved_     | —                 | —
+| vfwmmacc | 64 | 32 | 1 | —     | × | —     | × | —     | _reserved_     | —                 | —
+| vfwmmacc | 64 | 32 | × | —     | 1 | —     | × | —     | _reserved_     | —                 | —
 
 12+^e| *vfqmmacc.vv (W=4)*
 
