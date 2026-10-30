@@ -3423,6 +3423,12 @@ It is expected that implementations will optimize the case of `rs2 = x0` to load
 Efficient implementations of tile loads with `rs2 = x0` are essential to high-performance linear algebra kernels.
 ====
 
+For a tile load/store instruction, `effective_klen` denotes the decoded
+semantic KLEN value used by that instruction. If the instruction's KLEN
+field is nonzero, its decoded value is used; otherwise, the value decoded
+from `vtype.klen[2:0]` is used. An instruction-immediate override does not
+modify `vtype.klen`.
+
 Let `D = effective_klen × LMUL` be the transfer line size. Any
 architectural `VL` in the range `0 ≤ VL ≤ VLMAX` is permitted, subject
 to the other legality rules in <<integrated-matrix-tile-ls-legality>>.
