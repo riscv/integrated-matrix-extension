@@ -29,21 +29,25 @@ has shape `K_eff` × `NLEN`. The C register group has a fixed physical shape
 `MLEN` × `NLEN_MAX`, while each instruction updates an active
 `MLEN` × `NLEN` sub-tile.
 
-The dimensions for a matrix computation are:
+For a matrix multiply-accumulate instruction, `VL` shall be an integer
+multiple of `KLEN × LMUL`. An instruction that violates this requirement
+is reserved. For a computation satisfying this requirement, the dimensions
+are:
 
     MLEN     = VLEN / (SEW × KLEN)
-    NLEN     = floor(VL / (KLEN × LMUL))
+    NLEN     = VL / (KLEN × LMUL)
     NLEN_MAX = MLEN
     K_eff    = KLEN × W × LMUL
 
 `MLEN` is the number of A/C tile rows; `NLEN` is the number of active
 B-tile rows and C columns; and `NLEN_MAX` is the physical C tile width.
 They are derived dimensions, not additional configurable fields.
-The active-column range is `0 ≤ NLEN ≤ NLEN_MAX`. Here `floor` denotes
-rounding down to an integer. `VL` need not be divisible by `KLEN × LMUL`:
-only complete B-tile rows and complete C columns participate. If `NLEN=0`,
-C is undisturbed regardless of `vta`, and `fflags` is unchanged. All other
-instruction-legality requirements still apply.
+The active-column range is `0 ≤ NLEN ≤ NLEN_MAX`, and the quotient that
+defines `NLEN` is exact. For an otherwise legal instruction with `VL=0`,
+`NLEN=0`, C is undisturbed regardless of `vta`, and `fflags` is unchanged.
+All other instruction-legality requirements still apply. Tile loads and
+stores have separate vector-length rules and continue to permit partial
+final transfer lines.
 
 At the maximum applicable `VL`, `NLEN = NLEN_MAX = MLEN`; B then has
 shape `MLEN` × `K_eff`, and all columns of the physical C tile are active.
@@ -1181,7 +1185,7 @@ each `SEW`-wide storage position occupy consecutive K indices.
 The C accumulator register group `vd` shall not overlap either input
 register group `vs1` or `vs2`. Two register groups overlap when they name at
 least one architectural vector register in common. This destination-overlap
-restriction applies regardless of `VL`, including when `NLEN` = 0.
+restriction applies regardless of `VL`, including when `VL` = 0.
 
 The two input register groups may overlap each other. Because both input
 groups use the same `LMUL` and each base register is `LMUL`-aligned, this can
@@ -1248,7 +1252,7 @@ in one vector register.
 |Maximum B rows and physical C columns.
 
 |NLEN
-|floor(`VL` / (`KLEN` × `LMUL`))
+|`VL` / (`KLEN` × `LMUL`) (exact)
 |Active B rows and active B^T^ and C columns; `0 ≤ NLEN ≤ NLEN_MAX`.
 
 |EMUL_C
@@ -1257,10 +1261,11 @@ in one vector register.
 |===
 
 `MLEN`, `NLEN`, and `NLEN_MAX` are derived tile dimensions. The `VL` and
-`LMUL` in the floor-based `NLEN` formula are those of the matrix computation.
-The floor operation affects only the derived column count, not the
-architectural `vl` CSR. A tile load/store may use a different transfer
-`vl` and register-group multiplier,
+`LMUL` in the `NLEN` formula are those of the matrix computation. The
+quotient is exact: a matrix multiply-accumulate instruction with `VL` not
+an integer multiple of `KLEN × LMUL` is reserved. For an otherwise legal
+instruction, the architectural `vl` CSR is unchanged. A tile load/store
+may use a different transfer `vl` and register-group multiplier,
 especially when moving C; see <<integrated-matrix-active-tile-geometry>>.
 Application-matrix and complete microkernel-block dimensions continue to
 use `M`, `N`, and `K` where indicated; they are not new names for these
@@ -2557,8 +2562,8 @@ and the same exception-flag behavior.
 [#integrated-matrix-fp-special-values-fflags]
 ===== Floating-point special values and exception flags
 
-For floating-point matrix multiply-accumulate instructions, the architectural
-result of an instruction consists of both:
+For otherwise legal floating-point matrix multiply-accumulate instructions,
+the architectural result of an instruction consists of both:
 
 * the bit pattern written to each active C accumulator element; and
 * the accrued floating-point exception flags written to `fflags`.
@@ -2574,13 +2579,14 @@ However, the final accrued `fflags` value shall be the bitwise OR of all
 floating-point exception flags raised by the helper operations in the
 specified or disclosed evaluation of all active output elements.
 
-C tile tail elements, inactive columns, and any element positions not
-processed by the instruction do not contribute floating-point exception
-flags. This includes an incomplete final B-tile row excluded by
-`NLEN = floor(VL / (KLEN × LMUL))` and its associated `scale_B` fields.
-If `NLEN=0`, no arithmetic or microscaling evaluation is performed, no C
-element is modified regardless of `vta`, and `fflags` is unchanged. These
-rules do not waive any other legality or context-status requirement.
+For an otherwise legal instruction, C tile tail elements, inactive columns,
+and any element positions not processed by the instruction do not
+contribute floating-point exception flags. If `VL=0`, no arithmetic or
+microscaling evaluation is performed, no C element is modified regardless
+of `vta`, and `fflags` is unchanged. These rules do not waive any other
+legality or context-status requirement. They do not define the result or
+exception flags of a computation with a nonconforming `VL`, which is
+reserved as specified in <<integrated-matrix-active-tile-geometry>>.
 
 When microscaling forces an output element to the default NaN because
 either E8M0 block scale has the NaN encoding 0xFF, that element's evaluation
@@ -2944,14 +2950,14 @@ dimensions. It contains `MLEN` row strides of `R` _pw_-bit elements, where
 
     MLEN = NLEN_MAX = VLEN / (SEW × KLEN).
 
-For an operation with active column count `NLEN`, only the `scale_B` fields
-whose row-stride index _m_ satisfies `0 ≤ m < NLEN` are active. The `scale_B`
-fields with `NLEN ≤ m < MLEN` are ignored and do not affect the result or
-`fflags`. The physical layout and row stride are not compacted or otherwise
-changed when `NLEN < MLEN`. An incomplete final B-tile row excluded by
-the floor-based `NLEN` calculation does not activate its `scale_B` fields.
-If `NLEN=0`, neither `scale_A` nor `scale_B` values participate in any
-evaluation; no scale value changes C or `fflags`.
+For an otherwise legal operation with active column count `NLEN`, only the
+`scale_B` fields whose row-stride index _m_ satisfies `0 ≤ m < NLEN` are
+active. The `scale_B` fields with `NLEN ≤ m < MLEN` are ignored and do not
+affect the result or `fflags`. The physical layout and row stride are not
+compacted or otherwise changed when `NLEN < MLEN`. If `VL=0`, neither
+`scale_A` nor `scale_B` values participate in any evaluation; no scale
+value changes C or `fflags`. No scale-activity or result guarantee is
+defined here for a nonconforming compute `VL`; that case is reserved.
 
 Because
 
@@ -3446,13 +3452,16 @@ Elements of the partial line that are active may raise memory exceptions;
 masked-off, prestart, and tail elements do not access memory.
 
 When loading an input tile, complete transfer lines form complete rows
-of A~tile~ or B~tile~ (columns of B~tile~^T^). A following
-multiply-accumulate with the same configuration uses only the first
-`floor(VL / D)` complete B-tile rows. The partial row, if any, was still
-transferred and could have raised a memory exception during the load.
-Software can avoid those extra accesses by using `VL = D × NLEN` for
-the B load. <<ime-load-store-vl>> illustrates aligned full and reduced
-lengths; a non-divisible length additionally transfers a partial line.
+of A~tile~ or B~tile~ (columns of B~tile~^T^). Any partial final row is
+also transferred, and its active elements may raise memory exceptions.
+A subsequent multiply-accumulate has a separate exact-column `VL`
+requirement (see <<integrated-matrix-active-tile-geometry>>); a legal
+partial-line transfer does not make a computation at the same non-divisible
+`VL` legal. When the transfer and computation use the same semantic KLEN,
+`LMUL`, and storage `SEW`, software may use `VL = D × NLEN` for both
+the B load and the computation, avoiding extra partial-row accesses.
+<<ime-load-store-vl>> illustrates aligned full and reduced lengths; a
+non-divisible transfer length additionally transfers a partial line.
 
 [#ime-load-store-vl]
 .Examples of element distribution for full and reduced vector-length matrix-tile load/store operations.
@@ -3707,13 +3716,18 @@ tiles.
 [#integrated-matrix-active-tile-geometry]
 ==== Tile geometry for multiply-accumulate
 
+For a matrix multiply-accumulate instruction, `VL` shall be an integer
+multiple of `KLEN × LMUL`. An instruction that violates this requirement
+is reserved. The following computation geometry and arithmetic semantics
+apply only to instructions satisfying this vector-length requirement.
+
 The tile dimensions are fully determined by the current vector configuration:
 
-    MLEN     = VLEN / (SEW × KLEN)         (rows of A and C)
-    K_eff    = KLEN × W × LMUL             (logical K-dimension step)
-    NLEN     = floor(VL / (KLEN × LMUL))   (active B rows and C columns)
-    NLEN_MAX = MLEN                       (physical C columns)
-    EMUL_C   = MLEN / KLEN                (C register-group size)
+    MLEN     = VLEN / (SEW × KLEN)   (rows of A and C)
+    K_eff    = KLEN × W × LMUL       (logical K-dimension step)
+    NLEN     = VL / (KLEN × LMUL)    (active B rows and C columns; exact)
+    NLEN_MAX = MLEN                 (physical C columns)
+    EMUL_C   = MLEN / KLEN           (C register-group size)
 
 `MLEN` is determined by `VLEN` and the selected `SEW` and `KLEN`; it is
 independent of `VL`, `LMUL`, and `W`. `NLEN` is controlled by software
@@ -3724,38 +3738,48 @@ configuration instruction. At the maximum applicable `VL`,
 independently configurable parameters.
 
 `VL` counts `SEW`-bit storage elements, where `SEW` is the C element
-width. Let `D = KLEN × LMUL`. All architectural `VL` values in
-`0 ≤ VL ≤ VLMAX` are permitted for an otherwise legal matrix
-multiply-accumulate instruction. `VL` need not be an integer multiple of
-`D`; a nonzero remainder shall not cause an illegal-instruction exception.
-The division in the definition of `NLEN` rounds down. Equivalently,
+width. Let `D = KLEN × LMUL`. Within the architectural range
+`0 ≤ VL ≤ VLMAX`, the computation requires `VL % D = 0`. The quotient
+that defines `NLEN` is exact, so
 
-    NLEN × D ≤ VL < (NLEN + 1) × D.
+    VL = NLEN × D.
 
-Only the first `NLEN` complete B-tile rows participate in the computation.
-An incomplete final B-tile row does not contribute products, results, or
-floating-point exception flags, and does not cause a partial computation
-of another C column. Its `scale_B` fields, when microscaling is enabled,
-also do not participate. The widening factor `W` does not enter the
-`NLEN` divisor, because `VL` is measured in storage elements rather than
-logical input elements.
+Only the first `NLEN` B-tile rows and corresponding columns of
+B~tile~^T^ and C participate in the computation. The widening factor `W`
+does not enter the `NLEN` divisor, because `VL` is measured in storage
+elements rather than logical input elements.
 
-This interpretation does not modify the architectural `vl` CSR or the
-vector-configuration rules that select `VL`. All other legality rules,
-including format, geometry, register-group, overlap, `vstart`, and
-context-status requirements, remain applicable even when `NLEN=0`.
+A nonconforming `VL` is a reserved configuration, not a request to round
+down the active column count. This specification neither defines a
+truncated-column result nor requires an illegal-instruction exception
+solely because `VL` is not divisible by `D`. This reservation does not
+change any separately specified mandatory exception or context-status
+requirement.
+
+For an otherwise legal instruction, the architectural `vl` CSR is
+unchanged. This requirement does not change the vector-configuration rules
+that select `VL`; software shall establish a conforming length before
+executing the computation. All other legality rules, including format,
+geometry, register-group, overlap, `vstart`, and context-status
+requirements, remain applicable, including when `VL=0`.
+
+The exact-column requirement applies only to matrix multiply-accumulate
+instructions. Tile loads and stores retain their exact `VL`-defined body,
+including partial final lines, and their existing element-level masking
+and restart rules.
 
 [NOTE]
 ====
-For `KLEN=4`, `LMUL=1`, and `VLMAX ≥ 11`, both `VL=8` and `VL=11`
-select two active C columns. Values `VL=0` through `VL=3` select none.
-With `LMUL=2` and the same `KLEN`, `VL=11` selects one active column.
-The architectural `vl` value remains unchanged in each case.
+For `KLEN=4`, `LMUL=1`, and a supported configuration with `VLMAX ≥ 12`,
+`VL=8` selects two active C columns and `VL=12` selects three. A
+computation with `VL=11` is reserved. `VL=0` selects no columns, whereas
+`VL=1`, `VL=2`, and `VL=3` are reserved. With `LMUL=2` and the same
+`KLEN`, `VL=8` selects one active column and `VL=16` selects two.
 
-Software that uses arbitrary returned lengths advances its matrix-column
-loop by `NLEN`, not by a count that includes the incomplete row. A request
-`VL = D × n`, with `0 ≤ n ≤ NLEN_MAX`, remains a useful way to select
-exactly `n` complete columns without a remainder.
+Software can first select `n`, with `0 ≤ n ≤ NLEN_MAX`, then request
+`VL = D × n`. This request is at most `VLMAX` and selects exactly `n`
+complete columns. A value returned for a larger vector-length request
+must not be assumed to meet the computation's divisibility requirement.
 ====
 
 The C accumulator tile has a fixed physical shape:
@@ -3792,9 +3816,10 @@ length:
 
     VL = KLEN × LMUL × NLEN
 
-This equality is a software choice, not a divisibility requirement.
-For the same non-divisible `VL`, a B-tile load transfers the partial final
-row as well, whereas the computation uses only complete B-tile rows.
+This equality is required for the computation. Using the same length for
+the B-tile load is a software choice. A B-tile load may instead use a
+non-divisible transfer length, but software shall establish a conforming
+compute `VL` before executing the multiply-accumulate instruction.
 
 The compute `VL` selects the number of active columns of
 B~tile~^T^ and, equivalently, the number of active
@@ -3804,7 +3829,7 @@ accumulator tile, which remains `NLEN_MAX`.
 [#integrated-matrix-c-tile-tail-policy]
 ==== C tile tail policy
 
-When `NLEN` < `NLEN_MAX`, the elements C~i,j~ for
+For an otherwise legal instruction with `NLEN` < `NLEN_MAX`, the elements C~i,j~ for
 `0 ≤ i < MLEN` and `NLEN ≤ j < NLEN_MAX` are _C tile tail
 elements_. C tile tail elements do not participate in the
 multiply-accumulate computation, and their pre-instruction values are not
@@ -3826,11 +3851,12 @@ For `NLEN > 0`, the C tile tail policy is:
   `SEW`-bit pattern. The choice may vary independently among C tile tail
   elements and need not be deterministic.
 
-If `NLEN = 0`, including when `0 < VL < KLEN × LMUL`, every C element
-retains its pre-instruction value regardless of `vta`. No arithmetic or
-microscaling evaluation is performed, and `fflags` is unchanged. All
-applicable legality and context-status checks still apply; the absence of
-active columns does not make an otherwise illegal instruction legal.
+For an otherwise legal instruction with `VL=0`, `NLEN=0` and every C
+element retains its pre-instruction value regardless of `vta`. No
+arithmetic or microscaling evaluation is performed, and `fflags` is
+unchanged. All applicable legality and context-status checks still apply.
+A nonzero `VL` smaller than `KLEN × LMUL` does not satisfy the exact-column
+requirement and is reserved; it is not a defined empty computation.
 
 [NOTE]
 ====
@@ -3943,7 +3969,7 @@ C column blocks.
 
 [NOTE]
 ====
-A compute `VL`, including the aligned choice `VL = KLEN × LMUL × NLEN`,
+A conforming compute length `VL = KLEN × LMUL × NLEN`
 is not in general the correct `VL` for loading or storing a fixed physical
 C accumulator tile. The compute `VL` selects active output columns for the
 multiply-accumulate instruction; C load/store uses the physical C tile
@@ -4112,7 +4138,7 @@ Key observations:
 
 * The order-preserving `B_matrix` load constructs
   B~tile~^T^ directly. The load and the
-  multiply-accumulate instruction share the deliberately aligned choice
+  multiply-accumulate instruction share the required compute length
   `VL = KLEN × LMUL × NLEN`, which transfers no partial B row and
   selects the active columns of B~tile~^T^ and C.
 
@@ -4283,13 +4309,21 @@ operation. It is the program's responsibility to execute only supported
 specializations; the compiler may reuse a suitable hardware configuration
 whenever doing so preserves the intrinsic's semantics.
 
-The vector length used for a computational intrinsic need not be divisible
-by `KLEN × LMUL`. It selects
-`NLEN = floor(VL / (KLEN × LMUL))` complete output columns, with the C
-tile tail policy in <<integrated-matrix-c-tile-tail-policy>>. If `NLEN=0`,
-the result is the input accumulator value unchanged, regardless of `vta`,
-and `fflags` is unchanged. These rules do not relax the other intrinsic
-support, format, or geometry requirements.
+The vector length used for a computational intrinsic shall be an integer
+multiple of its required `KLEN × LMUL`, where `LMUL` is the input
+register-group multiplier, not `EMUL_C`. This is a caller precondition for
+the specified intrinsic semantics. It selects exactly
+`NLEN = VL / (KLEN × LMUL)` output columns, with the C tile tail policy
+in <<integrated-matrix-c-tile-tail-policy>>. For an otherwise valid call
+with `VL=0`, the result is the input accumulator value unchanged,
+regardless of `vta`, and `fflags` is unchanged.
+
+An IME computational instruction issued with a nonconforming `VL` is
+reserved. The intrinsic interface does not define a rounded-down result
+or guarantee a diagnostic or trap for a nonconforming length. All other
+intrinsic support, format, and geometry requirements remain unchanged.
+This computation-specific precondition does not restrict tile load/store
+intrinsics, which continue to permit partial final transfer lines.
 
 This inference is specific to computational intrinsics. The register-group
 multiplier in a tile load/store intrinsic describes its `LMUL`, not an
@@ -5743,13 +5777,29 @@ In the instruction descriptions below:
 
 An encoding-map cell marked `_reserved_`, a cell naming no extension, or
 a cell naming an extension that is not implemented causes an
-illegal-instruction exception.
+illegal-instruction exception. This encoding-map rule is distinct from
+the reserved nonconforming-`VL` configuration in
+<<integrated-matrix-active-tile-geometry>>; it does not impose a
+mandatory divisibility trap.
 
 [#integrated-matrix-insns,reftext="Instructions (in alphabetical order)"]
 === Instructions (in alphabetical order)
 
-The semantics of each instruction are expressed in a SAIL-like syntax, using the following
-helper functions that are shared across all instructions in this chapter:
+The semantics of each instruction are expressed in a SAIL-like syntax,
+using helper functions shared across the instructions in this chapter.
+
+For matrix multiply-accumulate instructions, the normal-operation
+pseudocode, including `decode_gemm_geometry` and the four GEMM helpers,
+is specified only for `VL` values that are integer multiples of
+`KLEN × LMUL` (see <<integrated-matrix-active-tile-geometry>>). A
+nonconforming `VL` is reserved: evaluating the quotient or loops in this
+pseudocode does not define a truncated-column result for that case.
+This precondition is not an implicit assertion that requires a trap.
+Separately specified mandatory exception and context-status requirements
+remain unchanged. The tile load/store pseudocode has no such divisibility
+precondition and retains its exact `VL`-defined body.
+
+The shared helper functions are:
 
 [source,sail]
 --
@@ -6017,9 +6067,10 @@ function decode_gemm_geometry(W : int) -> gemm_geom = {
 
   let K_eff : int = klen * W * LMUL;
 
-  // Count complete B-tile rows / active C columns; division rounds down.
-  // VL counts SEW-bit storage elements at the C element width.
-  // A remainder is permitted and does not change the architectural vl.
+  // Defined-computation precondition: VL is a multiple of klen * LMUL.
+  // A nonmultiple is reserved; this code specifies neither truncation
+  // nor a required divisibility trap for that case.
+  // VL counts SEW-bit storage elements; the quotient below is exact.
   let vl_div   : int = klen * LMUL;
   let NLEN     : int = unsigned(vl) / vl_div;
   let MLEN     : int = (LMUL * vlen / EEW_A) / K_eff;
@@ -6324,12 +6375,14 @@ val check_int_mx_encoding_legality :
 // ─── Top-level GEMM operations ─────────────────────────────────────────
 //
 // Each instruction decodes its parameters and dispatches to one of the
-// following four operations. All instruction-legality checks still apply
-// when NLEN is zero. Ascending foreach ranges with an upper bound below
-// the lower bound are empty; thus each j loop below has zero iterations
-// when NLEN=0. No A/B/C values or scales are then evaluated, no C writes
-// occur, and fflags is unchanged regardless of vta. For NLEN>0, leaving
-// the C tails undisturbed here is permitted for either vta value.
+// following four operations, with the exact-column VL precondition above.
+// Nonconforming lengths are reserved, outside these arithmetic semantics.
+// All instruction-legality checks still apply when VL=0 (hence NLEN=0).
+// Ascending foreach ranges with an upper bound below the lower bound are
+// empty; thus each j loop has zero iterations for a legal VL=0 operation.
+// No A/B/C values or scales are then evaluated, no C writes occur, and
+// fflags is unchanged regardless of vta. For NLEN>0, leaving the C tails
+// undisturbed here is permitted for either vta value.
 
 // Integer GEMM: C (integer) += A (integer) × B (integer), no scaling.
 function int_gemm(g : gemm_geom, signed_A : bool, signed_B : bool,
@@ -6563,9 +6616,10 @@ layout), of which only the first NLEN columns are active.
 _vs1_ and _vs2_ have elements of width SEW÷8; _vd_ has elements of width SEW.
 +
 K_eff = KLEN × 8 × LMUL.
-`VL` selects `NLEN = floor(VL / (KLEN × LMUL))` active columns of
-B~tile~^T^ and C. A remainder is permitted and does not activate a partial
-column (see <<integrated-matrix-active-tile-geometry>>).
+`VL` shall be an integer multiple of `KLEN × LMUL`, selecting exactly
+`NLEN = VL / (KLEN × LMUL)` active columns of B~tile~^T^ and C.
+An instruction with a nonconforming `VL` is reserved
+(see <<integrated-matrix-active-tile-geometry>>).
 The remaining columns of the physical C tile are C tile tail elements.
 The signedness of each input operand is selected by `altfmt_A` and `altfmt_B` in `vtype`:
 0 = signed, 1 = unsigned.
@@ -6653,9 +6707,10 @@ layout), of which only the first NLEN columns are active.
 _vs1_ and _vs2_ have elements of width SEW÷8; _vd_ has elements of width SEW.
 +
 K_eff = KLEN × 8 × LMUL.
-`VL` selects `NLEN = floor(VL / (KLEN × LMUL))` active columns of
-B~tile~^T^ and C. A remainder is permitted and does not activate a partial
-column (see <<integrated-matrix-active-tile-geometry>>).
+`VL` shall be an integer multiple of `KLEN × LMUL`, selecting exactly
+`NLEN = VL / (KLEN × LMUL)` active columns of B~tile~^T^ and C.
+An instruction with a nonconforming `VL` is reserved
+(see <<integrated-matrix-active-tile-geometry>>).
 The remaining columns of the physical C tile are C tile tail elements.
 The floating-point format for A and B elements is selected independently by
 `altfmt_A` and `altfmt_B`, interpreted for input element width SEW÷8; the C
@@ -6771,9 +6826,10 @@ and _vd_ as an MLEN×NLEN_MAX physical accumulator tile (row-major register
 layout), of which only the first NLEN columns are active. All three tiles have elements of width SEW.
 +
 K_eff = KLEN × LMUL.
-`VL` selects `NLEN = floor(VL / (KLEN × LMUL))` active columns of
-B~tile~^T^ and C. A remainder is permitted and does not activate a partial
-column (see <<integrated-matrix-active-tile-geometry>>).
+`VL` shall be an integer multiple of `KLEN × LMUL`, selecting exactly
+`NLEN = VL / (KLEN × LMUL)` active columns of B~tile~^T^ and C.
+An instruction with a nonconforming `VL` is reserved
+(see <<integrated-matrix-active-tile-geometry>>).
 The remaining columns of the physical C tile are C tile tail elements.
 The floating-point format for A and B elements is selected independently by
 `altfmt_A` and `altfmt_B` in `vtype` (see <<mixed-format-inputs>>);
@@ -6867,9 +6923,10 @@ layout), of which only the first NLEN columns are active.
 _vs1_ and _vs2_ have elements of width SEW÷4; _vd_ has elements of width SEW.
 +
 K_eff = KLEN × 4 × LMUL.
-`VL` selects `NLEN = floor(VL / (KLEN × LMUL))` active columns of
-B~tile~^T^ and C. A remainder is permitted and does not activate a partial
-column (see <<integrated-matrix-active-tile-geometry>>).
+`VL` shall be an integer multiple of `KLEN × LMUL`, selecting exactly
+`NLEN = VL / (KLEN × LMUL)` active columns of B~tile~^T^ and C.
+An instruction with a nonconforming `VL` is reserved
+(see <<integrated-matrix-active-tile-geometry>>).
 The remaining columns of the physical C tile are C tile tail elements.
 The floating-point format for A and B elements is selected independently by
 `altfmt_A` and `altfmt_B`, interpreted for input element width SEW÷4; the C
@@ -6990,9 +7047,10 @@ layout), of which only the first NLEN columns are active.
 _vs1_ and _vs2_ have elements of width SEW÷2; _vd_ has elements of width SEW.
 +
 K_eff = KLEN × 2 × LMUL.
-`VL` selects `NLEN = floor(VL / (KLEN × LMUL))` active columns of
-B~tile~^T^ and C. A remainder is permitted and does not activate a partial
-column (see <<integrated-matrix-active-tile-geometry>>).
+`VL` shall be an integer multiple of `KLEN × LMUL`, selecting exactly
+`NLEN = VL / (KLEN × LMUL)` active columns of B~tile~^T^ and C.
+An instruction with a nonconforming `VL` is reserved
+(see <<integrated-matrix-active-tile-geometry>>).
 The remaining columns of the physical C tile are C tile tail elements.
 The floating-point format for A and B elements is selected independently by
 `altfmt_A` and `altfmt_B`, interpreted for input element width SEW÷2; the C
@@ -7110,9 +7168,10 @@ register layout), of which only the first NLEN columns are active.
 _vs1_ and _vs2_ have integer elements of width SEW÷2; _vd_ has FP elements of width SEW.
 +
 K_eff = KLEN × 2 × LMUL.
-`VL` selects `NLEN = floor(VL / (KLEN × LMUL))` active columns of
-B~tile~^T^ and C. A remainder is permitted and does not activate a partial
-column (see <<integrated-matrix-active-tile-geometry>>).
+`VL` shall be an integer multiple of `KLEN × LMUL`, selecting exactly
+`NLEN = VL / (KLEN × LMUL)` active columns of B~tile~^T^ and C.
+An instruction with a nonconforming `VL` is reserved
+(see <<integrated-matrix-active-tile-geometry>>).
 The remaining columns of the physical C tile are C tile tail elements.
 MXINT inputs are always signed; `altfmt_A` and `altfmt_B` must be 0.
 `altfmt` selects the FP format of the accumulator C.
@@ -7230,9 +7289,10 @@ register layout), of which only the first NLEN columns are active.
 _vs1_ and _vs2_ have integer elements of width SEW÷8; _vd_ has FP elements of width SEW.
 +
 K_eff = KLEN × 8 × LMUL.
-`VL` selects `NLEN = floor(VL / (KLEN × LMUL))` active columns of
-B~tile~^T^ and C. A remainder is permitted and does not activate a partial
-column (see <<integrated-matrix-active-tile-geometry>>).
+`VL` shall be an integer multiple of `KLEN × LMUL`, selecting exactly
+`NLEN = VL / (KLEN × LMUL)` active columns of B~tile~^T^ and C.
+An instruction with a nonconforming `VL` is reserved
+(see <<integrated-matrix-active-tile-geometry>>).
 The remaining columns of the physical C tile are C tile tail elements.
 MXINT inputs are always signed; `altfmt_A` and `altfmt_B` must be 0.
 `altfmt` selects the FP format of the accumulator C.
@@ -7345,9 +7405,10 @@ register layout), of which only the first NLEN columns are active.
 _vs1_ and _vs2_ have integer elements of width SEW÷4; _vd_ has FP elements of width SEW.
 +
 K_eff = KLEN × 4 × LMUL.
-`VL` selects `NLEN = floor(VL / (KLEN × LMUL))` active columns of
-B~tile~^T^ and C. A remainder is permitted and does not activate a partial
-column (see <<integrated-matrix-active-tile-geometry>>).
+`VL` shall be an integer multiple of `KLEN × LMUL`, selecting exactly
+`NLEN = VL / (KLEN × LMUL)` active columns of B~tile~^T^ and C.
+An instruction with a nonconforming `VL` is reserved
+(see <<integrated-matrix-active-tile-geometry>>).
 The remaining columns of the physical C tile are C tile tail elements.
 MXINT inputs are always signed; `altfmt_A` and `altfmt_B` must be 0.
 `altfmt` selects the FP format of the accumulator C.
@@ -7458,9 +7519,10 @@ and _vd_ as an MLEN×NLEN_MAX physical accumulator tile (row-major register
 layout), of which only the first NLEN columns are active. All three tiles have elements of width SEW.
 +
 K_eff = KLEN × LMUL.
-`VL` selects `NLEN = floor(VL / (KLEN × LMUL))` active columns of
-B~tile~^T^ and C. A remainder is permitted and does not activate a partial
-column (see <<integrated-matrix-active-tile-geometry>>).
+`VL` shall be an integer multiple of `KLEN × LMUL`, selecting exactly
+`NLEN = VL / (KLEN × LMUL)` active columns of B~tile~^T^ and C.
+An instruction with a nonconforming `VL` is reserved
+(see <<integrated-matrix-active-tile-geometry>>).
 The remaining columns of the physical C tile are C tile tail elements.
 The signedness of each input operand is selected by `altfmt_A` and `altfmt_B` in `vtype`:
 0 = signed, 1 = unsigned.
@@ -8130,9 +8192,10 @@ layout), of which only the first NLEN columns are active.
 _vs1_ and _vs2_ have elements of width SEW÷4; _vd_ has elements of width SEW.
 +
 K_eff = KLEN × 4 × LMUL.
-`VL` selects `NLEN = floor(VL / (KLEN × LMUL))` active columns of
-B~tile~^T^ and C. A remainder is permitted and does not activate a partial
-column (see <<integrated-matrix-active-tile-geometry>>).
+`VL` shall be an integer multiple of `KLEN × LMUL`, selecting exactly
+`NLEN = VL / (KLEN × LMUL)` active columns of B~tile~^T^ and C.
+An instruction with a nonconforming `VL` is reserved
+(see <<integrated-matrix-active-tile-geometry>>).
 The remaining columns of the physical C tile are C tile tail elements.
 The signedness of each input operand is selected by `altfmt_A` and `altfmt_B` in `vtype`:
 0 = signed, 1 = unsigned.
@@ -8221,9 +8284,10 @@ layout), of which only the first NLEN columns are active.
 _vs1_ and _vs2_ have elements of width SEW÷2; _vd_ has elements of width SEW.
 +
 K_eff = KLEN × 2 × LMUL.
-`VL` selects `NLEN = floor(VL / (KLEN × LMUL))` active columns of
-B~tile~^T^ and C. A remainder is permitted and does not activate a partial
-column (see <<integrated-matrix-active-tile-geometry>>).
+`VL` shall be an integer multiple of `KLEN × LMUL`, selecting exactly
+`NLEN = VL / (KLEN × LMUL)` active columns of B~tile~^T^ and C.
+An instruction with a nonconforming `VL` is reserved
+(see <<integrated-matrix-active-tile-geometry>>).
 The remaining columns of the physical C tile are C tile tail elements.
 The signedness of each input operand is selected by `altfmt_A` and `altfmt_B` in `vtype`:
 0 = signed, 1 = unsigned.
@@ -8338,7 +8402,11 @@ and governing individual extension or extensions.
 A selected table row marked `_reserved_` raises an illegal-instruction
 exception. For a non-reserved row, every extension named by the applicable
 extension cell shall be implemented. Otherwise, the instruction raises an
-illegal-instruction exception.
+illegal-instruction exception. These encoding-map requirements are
+distinct from the compute vector-length requirement in
+<<integrated-matrix-active-tile-geometry>>: an implemented, non-reserved
+encoding-map row does not make a computation with a nonconforming `VL`
+legal, and the `VL` reservation does not itself mandate a trap.
 
 The applicable extension cell is identified separately for ordinary
 unscaled, floating-point-input MX, and integer-input MX instructions in
