@@ -1549,6 +1549,33 @@ The implementation-defined grouping factor `G` is applied separately within each
 For unscaled floating-point multiply-accumulate instructions, every group within an `LMUL=1` step has exactly `G` sub-dot-products, and the number of groups in the computation of C~i,j~ above is `LAMBDA` ÷ `G`.
 For microscaled instructions, additional microscaling block boundaries apply; see <<integrated-matrix-mx-shortened-groups>>.
 
+*Order of group accumulation.* For each active output element C~i,j~,
+the contributions from successive groups shall be accumulated in increasing
+order of the first logical K index of each group.
+
+For unscaled floating-point multiply-accumulate instructions, the `LMUL=1`
+steps are processed in increasing order of the input vector-register
+indices. Within each step, groups are processed in increasing order of
+their starting sub-dot-product indices: `0, G, 2G, ..., LAMBDA-G`, numbered
+relative to the beginning of that step. All group contributions from one
+step are accumulated before any group contribution from the next step.
+
+For microscaled floating-point-input instructions, groups are formed
+within the intersections of microscaling blocks and `LMUL=1` steps, as
+specified in <<integrated-matrix-mx-shortened-groups>>. Microscaling blocks
+are processed in increasing logical K order. Within each block, the
+nonempty intersections with `LMUL=1` steps are processed in increasing
+logical K order. Within each intersection, groups are processed in
+increasing order of their starting sub-dot-product indices. The resulting
+group contributions are therefore also accumulated in increasing logical
+K order, subject to the scale-NaN early-termination rules in
+<<integrated-matrix-fp-special-values-fflags>>.
+
+This requirement specifies the accumulation order _between groups_. The
+formation of each group's partial sum, including any permitted
+implementation-defined reduction _within a group_, is specified separately
+below.
+
 `G` must satisfy:
 
 * `G` is a power of two;
@@ -1584,26 +1611,65 @@ For microscaled instructions, additional microscaling block boundaries apply; se
 
 ** If `rnd=xct`, no rounding to the C accumulator format is applied to the partial sum `S` before the final accumulation into `C`.
 
-* After each group, the partial sum `S`, or the rounded value derived from `S`, is accumulated into the running value of C~i,j~ by computing
+* For each active output element C~i,j~, the running accumulator `acc` is
+  initialized to the pre-instruction value of that element. Each evaluated
+  group contributes exactly one update to this accumulator, in the group
+  order specified above.
 
-C~i,j~ ← round~frm~(C~i,j~ + S).
+Let `P` denote the contribution of the current group after the partial sum
+`S` has undergone any required microscaling and the treatment selected by
+`rnd`. For `rnd=frm` or `rnd=rto`, `P` is the partial sum rounded to the C
+accumulator format using the specified rule. For `rnd=xct`, `P` is retained
+in internal form without first rounding it to the C accumulator format.
 
-The accumulation rounding is performed with the rounding mode from `frm`.
-If `rnd=xct`, the partial sum `S` is retained in sufficient internal precision so that the only rounding step in the update of C~i,j~ by that group is the final round~frm~(C~i,j~ + S).
+Each group updates the running accumulator as follows:
+
+[%unbreakable]
+====
+[.text-center]
+`acc` ← round~frm~(`acc` + `P`).
+====
+
+Here, round~frm~ rounds to the C accumulator format using the rounding mode
+specified by `frm`. Each update uses the rounded accumulator value produced
+by the immediately preceding group; the first update uses the
+pre-instruction value of C~i,j~. The accumulator is not reinitialized at an
+`LMUL=1` step boundary or a microscaling block boundary.
+
+Consequently, `rnd=xct` eliminates the rounding of an individual partial
+sum before its addition, but does not eliminate the rounding of the
+accumulator after each group. It does not replace these successive rounded
+updates with a single addition of a combined unrounded sum.
+
+After the last group, the running accumulator is the resulting value of
+C~i,j~, subject to the microscaling scale-NaN early-termination rules in
+<<integrated-matrix-fp-special-values-fflags>>. The required result bits and
+accrued floating-point exception flags shall match this ordered sequence
+of operations.
+
+[NOTE]
+====
+This is an architectural evaluation order, not a requirement on the
+physical scheduling of operations. An implementation may overlap or
+parallelize operations provided that the resulting value of each output
+element and the accrued floating-point exception flags match the specified
+ordered computation. In particular, changing the parenthesization of the
+group additions is not permitted when it changes those results or flags.
+====
 
 [NOTE]
 ====
 The three `rnd` values are not numerically interchangeable.
 
 When a group partial sum `S` is first rounded to the C accumulator format
-and then accumulated into C~i,j~, the computation has two rounding
-points: one when the partial sum is rounded, and another when the following
+to produce `P` and then accumulated into `acc`, the computation has two
+rounding points: one when `P` is produced, and another when the following
 accumulation is performed:
 
 [%unbreakable]
 ======
 [.text-center]
-round~frm~(C~i,j~ + S)
+round~frm~(`acc` + `P`)
 ======
 
 This two-stage rounding can differ from an accumulation performed with the
