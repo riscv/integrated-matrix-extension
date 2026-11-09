@@ -1506,18 +1506,20 @@ The extensions specific to microscaling are listed separately in <<mx-extensions
 
 The Zvvm family of Integrated Matrix extensions defines the following additional fields in the `vtype` CSR:
 
-* `klen[2:0]` at `vtype[XLEN-2:XLEN-4]` encodes the selected base K-dimension length `KLEN`
-* `bs` at `vtype[XLEN-5]` is the Block Size selector for microscaling
-* `altfmt_A` at `vtype[XLEN-6]` is the Alternate Format for input A
-* `altfmt_B` at `vtype[XLEN-7]` is the Alternate Format for input B
+* `klen[2:0]` at `vtype[30:28]` encodes the selected base K-dimension length `KLEN`
+* `bs` at `vtype[27]` is the Block Size selector for microscaling
+* `altfmt_A` at `vtype[26]` is the Alternate Format for input A
+* `altfmt_B` at `vtype[25]` is the Alternate Format for input B
 
-These IME fields occupy the high end of `vtype`, immediately below `vill`
-(`vtype[XLEN-1]`). They are distinct from the base `altfmt` field defined
+These IME fields occupy fixed bit positions `30:25` in both RV32 and
+RV64, independently of `XLEN`. The `vill` bit remains at
+`vtype[XLEN-1]`, so the IME fields are immediately below `vill` only
+on RV32. They are distinct from the base `altfmt` field defined
 by Zvfbfa — which selects the floating-point format of the output
 accumulator C in conjunction with `vsew` (see <<integrated-matrix-altfmt>>)
 and resides in the low part of `vtype` at the bit position assigned by
 Zvfbfa. `altfmt` (output format, Zvfbfa) does not collide with the
-IME-defined `altfmt_A` / `altfmt_B` (input formats, high bits).
+IME-defined `altfmt_A` / `altfmt_B` (input formats at bits `26` and `25`).
 
 [NOTE]
 ====
@@ -1784,7 +1786,7 @@ They select the interpretation of elements in input matrices A and B, respective
 Their meaning depends on whether the instruction is a floating-point or integer multiply-accumulate.
 
 The `altfmt_A` and `altfmt_B` bits are located at
-`vtype[XLEN-6]` and `vtype[XLEN-7]`, immediately below the
+`vtype[26]` and `vtype[25]`, immediately below the
 `bs` field. These positions are outside the `vtypei` immediate
 field of `vsetvli` and `vsetivli`; they cannot be written directly
 by those instructions. They are written by `vsetvl`, which supplies
@@ -1859,7 +1861,7 @@ specified in <<integrated-matrix-vtype-config>>.
 | 1 | 16 elements
 |===
 
-The `bs` bit is located at `vtype[XLEN-5]`, immediately below `klen[2:0]`.
+The `bs` bit is located at `vtype[27]`, immediately below `klen[2:0]`.
 Like `altfmt_A` and `altfmt_B`, this position is outside the `vsetvli`
 immediate field.
 
