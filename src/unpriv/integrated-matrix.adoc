@@ -3361,6 +3361,12 @@ decompose an `m16` accumulator value from `m8` halves.
   the same register state. Non-instruction intrinsics have the ordering
   properties specified in their own descriptions.
 
+* The operands of a multiply-accumulate intrinsic are values. The compiler
+  shall allocate the C register group so that it does not overlap the A or
+  B register group (<<integrated-matrix-c-overlap>>), copying a value to
+  another register group where necessary; the same value may be passed for
+  A and B.
+
 * When the input element type is non-ISO (BFloat16, OFP8, OFP4, or Int4),
   the input-type name and register-group multiplier are appended as a suffix
   (`_{type}m{LMUL}`) to the intrinsic name, even for the default `altfmt=0`
