@@ -2,8 +2,6 @@
 == Zvvm Family of Integrated Matrix Extensions
 
 :stem: latexmath
-:imagesdir: ../docs-resources/images
-:imagesdir: images
 
 === Introduction
 
@@ -860,7 +858,7 @@ that path reads back a clamped value.
 | 1 | 1 | 1 | 64
 |===
 
-[#integrated-matrix-lambda]
+[#integrated-matrix-lambda,reftext="lambda write rules"]
 A write of `000` is a preserve-or-initialize request:
 
 * If the current nonzero lambda value is supported for the resulting
