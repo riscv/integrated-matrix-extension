@@ -548,15 +548,36 @@ element offset within that register is
 division and `%` denotes remainder. The `W` logical elements packed within
 each `SEW`-wide storage position occupy consecutive K indices.
 
-The C accumulator register group `vd` shall not overlap either input
-register group `vs1` or `vs2`. Two register groups overlap when they name at
-least one architectural vector register in common. This destination-overlap
-restriction applies regardless of `VL`, including when `VL` = 0.
+[#integrated-matrix-c-overlap,reftext="register-group overlap rule"]
+Two register groups overlap when they name at least one architectural vector
+register in common. If the C accumulator register group `vd` overlaps either
+input register group `vs1` or `vs2`, the behavior of the multiply-accumulate
+instruction is UNSPECIFIED, within the following constraints: the
+instruction either raises an illegal-instruction exception, or it completes,
+writing UNSPECIFIED values to the C elements it would otherwise write and,
+for a floating-point instruction, accruing UNSPECIFIED exception flags into
+`fflags`. It does not modify any other architectural state. This applies
+regardless of `VL`, including when `VL` = 0. Software shall not use such an
+overlap.
 
 The two input register groups may overlap each other. Because both input
 groups use the same `LMUL` and each base register is `LMUL`-aligned, this can
 occur only when they use the same base register; partial overlap is not
 possible.
+
+[NOTE]
+====
+Every element of C depends on many elements of A and B, so with an overlap
+the result would depend on the order in which C elements are computed. The
+overlap is therefore excluded rather than given a defined order, as for base
+V instructions with the same property, such as `vslideup` and `vrgather`.
+
+It is UNSPECIFIED rather than a mandatory illegal-instruction exception
+because detecting it requires `EMUL_C`, which depends on `SEW` and `LAMBDA`
+in `vtype`, and an implementation may not know these when it would raise the
+exception. Platform standards or implementations may constrain the behavior
+further, for example by requiring the exception.
+====
 
 [#ime-geometry-fig]
 .Geometry of matrix tiles and element ordering for `VLEN`/`SEW` (vector length in C element width) = 32 and `LAMBDA`=4. Vector register groups are interpreted as 2D tiles. Vector element indices show the tile element order. (a) Non-widening case (W=1) with A, B, and C having the same SEW. (b) Double-widening case (W=2) with A and B at half the SEW of C, with two narrow input elements packed into each SEW-wide storage position.
@@ -3347,6 +3368,12 @@ decompose an `m16` accumulator value from `m8` halves.
   the same register state. Non-instruction intrinsics have the ordering
   properties specified in their own descriptions.
 
+* The operands of a multiply-accumulate intrinsic are values. The compiler
+  shall allocate the C register group so that it does not overlap the A or
+  B register group (<<integrated-matrix-c-overlap>>), copying a value to
+  another register group where necessary; the same value may be passed for
+  A and B.
+
 * When the input element type is non-ISO (BFloat16, OFP8, OFP4, or Int4),
   the input-type name and register-group multiplier are appended as a suffix
   (`_{type}m{LMUL}`) to the intrinsic name, even for the default `altfmt=0`
@@ -4713,8 +4740,10 @@ function ime_reg_groups_overlap(base_a : regidx, regs_a : int,
 // Check register-group alignment, bounds, and destination/source overlap for
 // a multiply-accumulate. The A and B input operands (vs1, vs2) form
 // LMUL-register groups; the C accumulator (vd) forms an EMUL_C-register
-// group. The two input groups may overlap each other, but the destination
-// group shall not overlap either input group.
+// group. The two input groups may overlap each other. An overlap of the
+// destination group with an input group is UNSPECIFIED (see
+// integrated-matrix-c-overlap); this model raises illegal-instruction,
+// which is one of the permitted outcomes.
 function check_gemm_reg_groups(g : gemm_geom,
                                vs1 : regidx, vs2 : regidx, vd : regidx) -> unit = {
   check_ime_reg_group(vs1, g.LMUL);
@@ -5444,6 +5473,8 @@ Accumulation is modular (wraps at 2^SEW^).
 Only SEW ∈ {32, 64} is valid (giving EEW = 4 or 8); SEW ∈ {8, 16} is _reserved_.
 
 Exceptions::
+If the _vd_ register group overlaps the _vs1_ or _vs2_ register group, the behavior is UNSPECIFIED; see <<integrated-matrix-c-overlap>>.
++
 _Illegal Instruction_ is raised if any of the following conditions hold:
 +
 * `vstart` ≠ 0.
@@ -5452,7 +5483,6 @@ _Illegal Instruction_ is raised if any of the following conditions hold:
 * EMUL_C (= VLEN ÷ (SEW × LAMBDA²)) is not in \{1, 2, 4, 8, 16}.
 * _vs1_ or _vs2_ is not aligned for LMUL.
 * _vd_ is not aligned for EMUL_C.
-* The _vd_ register group overlaps the _vs1_ or _vs2_ register group.
 * When `vm=1`: the selected row in <<tbl-int-encoding-map>> is marked `_reserved_`, or the extension named by that row is not implemented.
 
 Operation::
@@ -5541,6 +5571,8 @@ selects the block size (32 or 16 elements).
 Only SEW ∈ {32, 64} is valid (giving EEW = 4 or 8); SEW ∈ {8, 16} is _reserved_.
 
 Exceptions::
+If the _vd_ register group overlaps the _vs1_ or _vs2_ register group, the behavior is UNSPECIFIED; see <<integrated-matrix-c-overlap>>.
++
 _Illegal Instruction_ is raised if any of the following conditions hold:
 +
 * `vstart` ≠ 0.
@@ -5549,7 +5581,6 @@ _Illegal Instruction_ is raised if any of the following conditions hold:
 * EMUL_C (= VLEN ÷ (SEW × LAMBDA²)) is not in \{1, 2, 4, 8, 16}.
 * _vs1_ or _vs2_ is not aligned for LMUL.
 * _vd_ is not aligned for EMUL_C.
-* The _vd_ register group overlaps the _vs1_ or _vs2_ register group.
 * When `vm=0`: the selected MX cell in <<tbl-fp-encoding-map>> is `—` or `_reserved_`, or any required extension named by that cell is not implemented.
 * When `vm=0`: SEW × LAMBDA < 16.
 * When `vm=0` and `bs=1`: W × LMUL > SEW (i.e., 8 × LMUL > SEW).
@@ -5654,6 +5685,8 @@ Microscaling (`vm=0`) is not supported for non-widening floating-point
 multiply-accumulate; `vm=0` is _reserved_.
 
 Exceptions::
+If the _vd_ register group overlaps the _vs1_ or _vs2_ register group, the behavior is UNSPECIFIED; see <<integrated-matrix-c-overlap>>.
++
 _Illegal Instruction_ is raised if any of the following conditions hold:
 +
 * `vstart` ≠ 0.
@@ -5662,7 +5695,6 @@ _Illegal Instruction_ is raised if any of the following conditions hold:
 * EMUL_C (= VLEN ÷ (SEW × LAMBDA²)) is not in \{1, 2, 4, 8, 16}.
 * _vs1_ or _vs2_ is not aligned for LMUL.
 * _vd_ is not aligned for EMUL_C.
-* The _vd_ register group overlaps the _vs1_ or _vs2_ register group.
 * The selected row in <<tbl-fp-encoding-map>> is marked `_reserved_`, or any extension named by that row is not implemented.
 
 Operation::
@@ -5754,6 +5786,8 @@ Only `SEW ∈ {16, 32, 64}` is valid, giving
 `SEW = 8`, which would imply `EEW = 2`, is _reserved_.
 
 Exceptions::
+If the _vd_ register group overlaps the _vs1_ or _vs2_ register group, the behavior is UNSPECIFIED; see <<integrated-matrix-c-overlap>>.
++
 _Illegal Instruction_ is raised if any of the following conditions hold:
 +
 * `vstart` ≠ 0.
@@ -5762,7 +5796,6 @@ _Illegal Instruction_ is raised if any of the following conditions hold:
 * EMUL_C (= VLEN ÷ (SEW × LAMBDA²)) is not in \{1, 2, 4, 8, 16}.
 * _vs1_ or _vs2_ is not aligned for LMUL.
 * _vd_ is not aligned for EMUL_C.
-* The _vd_ register group overlaps the _vs1_ or _vs2_ register group.
 * When `vm=0`: the selected MX cell in <<tbl-fp-encoding-map>> is `—` or `_reserved_`, or any required extension named by that cell is not implemented.
 * When `vm=0`: SEW × LAMBDA < 16.
 * When `vm=0` and `bs=1`: W × LMUL > SEW.
@@ -5873,6 +5906,8 @@ type (see <<integrated-matrix-microscaling>>). The `bs` field in `vtype`
 selects the block size (32 or 16 elements).
 
 Exceptions::
+If the _vd_ register group overlaps the _vs1_ or _vs2_ register group, the behavior is UNSPECIFIED; see <<integrated-matrix-c-overlap>>.
++
 _Illegal Instruction_ is raised if any of the following conditions hold:
 +
 * `vstart` ≠ 0.
@@ -5880,7 +5915,6 @@ _Illegal Instruction_ is raised if any of the following conditions hold:
 * EMUL_C (= VLEN ÷ (SEW × LAMBDA²)) is not in \{1, 2, 4, 8, 16}.
 * _vs1_ or _vs2_ is not aligned for LMUL.
 * _vd_ is not aligned for EMUL_C.
-* The _vd_ register group overlaps the _vs1_ or _vs2_ register group.
 * When `vm=0`: the selected MX cell in <<tbl-fp-encoding-map>> is `—` or `_reserved_`, or any required extension named by that cell is not implemented.
 * When `vm=0`: SEW × LAMBDA < 16.
 * When `vm=0` and `bs=1`: W × LMUL > SEW.
@@ -5989,6 +6023,8 @@ The `bs` field in `vtype` selects the block size (32 or 16 elements).
 The encodings SEW=8 (EEW=4, Int4 inputs into OFP8 accumulator), SEW=32, and SEW=64 are _reserved_.
 
 Exceptions::
+If the _vd_ register group overlaps the _vs1_ or _vs2_ register group, the behavior is UNSPECIFIED; see <<integrated-matrix-c-overlap>>.
++
 _Illegal Instruction_ is raised if any of the following conditions hold:
 +
 * `vstart` ≠ 0.
@@ -6002,7 +6038,6 @@ _Illegal Instruction_ is raised if any of the following conditions hold:
 * EMUL_C (= VLEN ÷ (SEW × LAMBDA²)) is not in \{1, 2, 4, 8, 16}.
 * _vs1_ or _vs2_ is not aligned for LMUL.
 * _vd_ is not aligned for EMUL_C.
-* The _vd_ register group overlaps the _vs1_ or _vs2_ register group.
 * SEW × LAMBDA < 16.
 * When `bs=1`: W × LMUL > SEW (i.e., 2 × LMUL > SEW).
 * _vd_, _vs1_, or _vs2_ overlaps `v0`.
@@ -6108,6 +6143,8 @@ The `bs` field in `vtype` selects the block size (32 or 16 elements).
 Only SEW ∈ {32, 64} is valid; SEW ∈ {8, 16} is _reserved_.
 
 Exceptions::
+If the _vd_ register group overlaps the _vs1_ or _vs2_ register group, the behavior is UNSPECIFIED; see <<integrated-matrix-c-overlap>>.
++
 _Illegal Instruction_ is raised if any of the following conditions hold:
 +
 * `vstart` ≠ 0.
@@ -6119,7 +6156,6 @@ _Illegal Instruction_ is raised if any of the following conditions hold:
 * EMUL_C (= VLEN ÷ (SEW × LAMBDA²)) is not in \{1, 2, 4, 8, 16}.
 * _vs1_ or _vs2_ is not aligned for LMUL.
 * _vd_ is not aligned for EMUL_C.
-* The _vd_ register group overlaps the _vs1_ or _vs2_ register group.
 * SEW × LAMBDA < 16.
 * When `bs=1`: W × LMUL > SEW (i.e., 8 × LMUL > SEW).
 * _vd_, _vs1_, or _vs2_ overlaps `v0`.
@@ -6222,6 +6258,8 @@ The `bs` field in `vtype` selects the block size (32 or 16 elements).
 The encodings SEW=8 (EEW=2), altfmt=1 with SEW=32, and SEW=64 are _reserved_.
 
 Exceptions::
+If the _vd_ register group overlaps the _vs1_ or _vs2_ register group, the behavior is UNSPECIFIED; see <<integrated-matrix-c-overlap>>.
++
 _Illegal Instruction_ is raised if any of the following conditions hold:
 +
 * `vstart` ≠ 0.
@@ -6235,7 +6273,6 @@ _Illegal Instruction_ is raised if any of the following conditions hold:
 * EMUL_C (= VLEN ÷ (SEW × LAMBDA²)) is not in \{1, 2, 4, 8, 16}.
 * _vs1_ or _vs2_ is not aligned for LMUL.
 * _vd_ is not aligned for EMUL_C.
-* The _vd_ register group overlaps the _vs1_ or _vs2_ register group.
 * SEW × LAMBDA < 16.
 * When `bs=1`: W × LMUL > SEW (i.e., 4 × LMUL > SEW).
 * _vd_, _vs1_, or _vs2_ overlaps `v0`.
@@ -6329,6 +6366,8 @@ The signedness of each input operand is selected by `altfmt_A` and `altfmt_B` in
 Accumulation is modular (wraps at 2^SEW^).
 
 Exceptions::
+If the _vd_ register group overlaps the _vs1_ or _vs2_ register group, the behavior is UNSPECIFIED; see <<integrated-matrix-c-overlap>>.
++
 _Illegal Instruction_ is raised if any of the following conditions hold:
 +
 * `vstart` ≠ 0.
@@ -6337,7 +6376,6 @@ _Illegal Instruction_ is raised if any of the following conditions hold:
 * EMUL_C (= VLEN ÷ (SEW × LAMBDA²)) is not in \{1, 2, 4, 8, 16}.
 * _vs1_ or _vs2_ is not aligned for LMUL.
 * _vd_ is not aligned for EMUL_C.
-* The _vd_ register group overlaps the _vs1_ or _vs2_ register group.
 * The selected row in <<tbl-int-encoding-map>> is marked `_reserved_`, or the extension named by that row is not implemented.
 
 Operation::
@@ -7007,6 +7045,8 @@ Only `SEW ∈ {16, 32, 64}` is valid, giving
 `SEW = 8`, which would imply `EEW = 2`, is _reserved_.
 
 Exceptions::
+If the _vd_ register group overlaps the _vs1_ or _vs2_ register group, the behavior is UNSPECIFIED; see <<integrated-matrix-c-overlap>>.
++
 _Illegal Instruction_ is raised if any of the following conditions hold:
 +
 * `vstart` ≠ 0.
@@ -7015,7 +7055,6 @@ _Illegal Instruction_ is raised if any of the following conditions hold:
 * EMUL_C (= VLEN ÷ (SEW × LAMBDA²)) is not in \{1, 2, 4, 8, 16}.
 * _vs1_ or _vs2_ is not aligned for LMUL.
 * _vd_ is not aligned for EMUL_C.
-* The _vd_ register group overlaps the _vs1_ or _vs2_ register group.
 * When `vm=1`: the selected row in <<tbl-int-encoding-map>> is marked `_reserved_`, or the extension named by that row is not implemented.
 
 Operation::
@@ -7094,6 +7133,8 @@ The signedness of each input operand is selected by `altfmt_A` and `altfmt_B` in
 Accumulation is modular (wraps at 2^SEW^).
 
 Exceptions::
+If the _vd_ register group overlaps the _vs1_ or _vs2_ register group, the behavior is UNSPECIFIED; see <<integrated-matrix-c-overlap>>.
++
 _Illegal Instruction_ is raised if any of the following conditions hold:
 +
 * `vstart` ≠ 0.
@@ -7101,7 +7142,6 @@ _Illegal Instruction_ is raised if any of the following conditions hold:
 * EMUL_C (= VLEN ÷ (SEW × LAMBDA²)) is not in \{1, 2, 4, 8, 16}.
 * _vs1_ or _vs2_ is not aligned for LMUL.
 * _vd_ is not aligned for EMUL_C.
-* The _vd_ register group overlaps the _vs1_ or _vs2_ register group.
 * When `vm=1`: the selected row in <<tbl-int-encoding-map>> is marked `_reserved_`, or the extension named by that row is not implemented.
 
 Operation::
