@@ -249,6 +249,28 @@ Arguments `A` and `B` point to input panels already packed for the nonzero
 vector registers `v16` through `v31`. Arguments `M`, `N`, and `K` define
 the shape of the matrix multiply, following BLAS convention.
 
+The C constructs describe configuration checks, specialization, and loop
+control. Each `asm { ... }` block contains RISC-V assembly instructions;
+the block delimiters are presentation notation. Compiler-specific
+inline-assembly operand bindings are omitted, so this is a mixed-language
+illustration rather than a standalone C translation unit. Setup uses the
+configuration and geometry-query intrinsics described later in this chapter.
+
+In the assembly blocks, `a1` and `a2` hold the current A and B pointers.
+The selected branch's `stepA_bytes` and `stepB_bytes` values are held in
+`t0` and `t1`; `t2` is a scratch destination for the initial configuration
+instruction. These strides are per-load byte advances. The assembly
+updates to `a1` and `a2` carry forward into the next iteration. For the
+full-block dimensions illustrated here, one iteration advances A by
+`M * klen` doubles and B by `N * klen` doubles.
+
+The surrounding control code establishes these bindings before entering
+the selected loop and preserves them, the accumulator registers, and the
+required vector configuration between assembly blocks. In particular,
+`VL=L`, `SEW=64`, `LMUL=1`, and the verified `KLEN` remain in effect during
+the K loop. The result remains in `v16` through `v31`; it is not returned
+through the C calling convention.
+
 This assembly-oriented example requires `altfmt_A = altfmt_B = 0` on
 entry for its binary64 input operands. If either field was set by earlier
 code, the caller must clear both fields with a register-form `vsetvl`
@@ -278,133 +300,179 @@ instructions), computations (`vfmmacc` instructions), and address updates.
 
 [#microdgemm-example]
 .Runtime specialization of a double-precision GEMM microkernel by `EMUL_C`
-[source,cpp,linenums]
+[source,text,linenums]
 ----
-void microdgemm
-(
-    u32      K,
-    double  *A,
-    double  *B,
-    u32      M,
-    u32      N,
-    size_t   requested_klen
-)
+void microdgemm(size_t K, const double *A, const double *B,
+               size_t M, size_t N, size_t requested_klen)
 {
-    /* Entry precondition: vtype.altfmt_A = vtype.altfmt_B = 0. */
-    vsetvli(5, 0, 64, 1, true, true);                                   // <1>
+    /* Entry precondition: altfmt_A = altfmt_B = 0. */
+    asm {                                                               // <1>
+        vsetvli t2, zero, e64, m1, ta, ma
+    }
 
-    assert(requested_klen != 0);
-    size_t klen = __riscv_vsetklen(requested_klen);
+    assert(requested_klen >= 1 && requested_klen <= 64);
+    assert((requested_klen & (requested_klen - 1)) == 0);
+    const size_t klen = __riscv_vsetklen(requested_klen);
     assert(klen == requested_klen);                                     // <2>
 
-    size_t L = __riscv_ime_vlen() / 64;                                 // <3>
-    assert(0 == L % (klen * klen));
-    size_t emul_c = L / (klen * klen);
+    const size_t L = __riscv_ime_vlen() / 64;                           // <3>
+    assert(L != 0 && L % (klen * klen) == 0);
+    const size_t emul_c = L / (klen * klen);
     assert(emul_c == 1 || emul_c == 2 || emul_c == 4 ||
            emul_c == 8 || emul_c == 16);                                // <4>
-    assert(0 == K % klen);                                              // <5>
+    assert(K % klen == 0);                                              // <5>
 
-    for (u32 r=16; r<32; r++) vxor.vv(r, r, r);       // <6>
+    /* Zero all 16 accumulator registers, with VL=L and LMUL=1. */
+    asm {                                                               // <6>
+        vmv.v.i v16, 0
+        vmv.v.i v17, 0
+        vmv.v.i v18, 0
+        vmv.v.i v19, 0
+        vmv.v.i v20, 0
+        vmv.v.i v21, 0
+        vmv.v.i v22, 0
+        vmv.v.i v23, 0
+        vmv.v.i v24, 0
+        vmv.v.i v25, 0
+        vmv.v.i v26, 0
+        vmv.v.i v27, 0
+        vmv.v.i v28, 0
+        vmv.v.i v29, 0
+        vmv.v.i v30, 0
+        vmv.v.i v31, 0
+    }
 
-    // We have 5 possible variants of the code, depending on "emul_c"
-    // (the number of output registers per basic vfmmacc)
-    // emul_c = 1, 2, 4, 8, 16
+    /* a1 = A, a2 = B; the byte strides below are held in t0 and t1. */
+    if (emul_c == 16) {                                                 // <7>
+        const size_t stepA_bytes = M * klen * sizeof(double); // t0
+        const size_t stepB_bytes = N * klen * sizeof(double); // t1
 
-    if (emul_c == 16) {                      // <7>
-        u32 stepA = M * klen;
-        u32 stepB = N * klen;
-        for (u32 k=0; k<K; k=k+klen)
-        {
-            vle64.v(0, A); A += stepA;
-            vle64.v(8, B); B += stepB;
-            vfmmacc.vv(16, 0, 8);
+        for (size_t k = 0; k < K; k += klen) {
+            asm {
+                vle64.v     v0, (a1)
+                add         a1, a1, t0
+                vle64.v     v8, (a2)
+                add         a2, a2, t1
+                vfmmacc.vv  v16, v0, v8
+            }
         }
-    } else if (emul_c == 8) {               // <8>
-        u32 stepA = M/2 * klen;
-        u32 stepB = N * klen;
-        for (u32 k=0; k<K; k=k+klen)
-        {
-            vle64.v(0, A); A += stepA;
-            vle64.v(8, B); B += stepB;
-            vfmmacc.vv(16, 0, 8);
-            vle64.v(1, A); A += stepA;
-            vfmmacc.vv(24, 1, 8);
+    } else if (emul_c == 8) {                                           // <8>
+        const size_t stepA_bytes = (M / 2) * klen * sizeof(double); // t0
+        const size_t stepB_bytes = N * klen * sizeof(double); // t1
+
+        for (size_t k = 0; k < K; k += klen) {
+            asm {
+                vle64.v     v0, (a1)
+                add         a1, a1, t0
+                vle64.v     v8, (a2)
+                add         a2, a2, t1
+                vfmmacc.vv  v16, v0, v8
+                vle64.v     v1, (a1)
+                add         a1, a1, t0
+                vfmmacc.vv  v24, v1, v8
+            }
         }
-    } else if (emul_c == 4) {               // <9>
-        u32 stepA = M/2 * klen;
-        u32 stepB = N/2 * klen;
-        for (u32 k=0; k<K; k=k+klen)
-        {
-            vle64.v(0, A); A += stepA;
-            vle64.v(8, B); B += stepB;
-            vfmmacc.vv(16, 0, 8);
-            vle64.v(1, A); A += stepA;
-            vfmmacc.vv(20, 1, 8);
-            vle64.v(9, B); B += stepB;
-            vfmmacc.vv(24, 0, 9);
-            vfmmacc.vv(28, 1, 9);
+    } else if (emul_c == 4) {                                           // <9>
+        const size_t stepA_bytes = (M / 2) * klen * sizeof(double); // t0
+        const size_t stepB_bytes = (N / 2) * klen * sizeof(double); // t1
+
+        for (size_t k = 0; k < K; k += klen) {
+            asm {
+                vle64.v     v0, (a1)
+                add         a1, a1, t0
+                vle64.v     v8, (a2)
+                add         a2, a2, t1
+                vfmmacc.vv  v16, v0, v8
+                vle64.v     v1, (a1)
+                add         a1, a1, t0
+                vfmmacc.vv  v20, v1, v8
+                vle64.v     v9, (a2)
+                add         a2, a2, t1
+                vfmmacc.vv  v24, v0, v9
+                vfmmacc.vv  v28, v1, v9
+            }
         }
-    } else if (emul_c == 2) {              // <10>
-        u32 stepA = M/4 * klen;
-        u32 stepB = N/2 * klen;
-        for (u32 k=0; k<K; k=k+klen)
-        {
-            vle64.v(0, A); A += stepA;
-            vle64.v(8, B); B += stepB;
-            vfmmacc.vv(16, 0, 8);
-            vle64.v(1, A); A += stepA;
-            vfmmacc.vv(18, 1, 8);
-            vle64.v(2, A); A += stepA;
-            vfmmacc.vv(20, 2, 8);
-            vle64.v(3, A); A += stepA;
-            vfmmacc.vv(22, 3, 8);
-            vle64.v(9, B); B += stepB;
-            vfmmacc.vv(24, 0, 9);
-            vfmmacc.vv(26, 1, 9);
-            vfmmacc.vv(28, 2, 9);
-            vfmmacc.vv(30, 3, 9);
+    } else if (emul_c == 2) {                                           // <10>
+        const size_t stepA_bytes = (M / 4) * klen * sizeof(double); // t0
+        const size_t stepB_bytes = (N / 2) * klen * sizeof(double); // t1
+
+        for (size_t k = 0; k < K; k += klen) {
+            asm {
+                vle64.v     v0, (a1)
+                add         a1, a1, t0
+                vle64.v     v8, (a2)
+                add         a2, a2, t1
+                vfmmacc.vv  v16, v0, v8
+                vle64.v     v1, (a1)
+                add         a1, a1, t0
+                vfmmacc.vv  v18, v1, v8
+                vle64.v     v2, (a1)
+                add         a1, a1, t0
+                vfmmacc.vv  v20, v2, v8
+                vle64.v     v3, (a1)
+                add         a1, a1, t0
+                vfmmacc.vv  v22, v3, v8
+                vle64.v     v9, (a2)
+                add         a2, a2, t1
+                vfmmacc.vv  v24, v0, v9
+                vfmmacc.vv  v26, v1, v9
+                vfmmacc.vv  v28, v2, v9
+                vfmmacc.vv  v30, v3, v9
+            }
         }
-    } else if (emul_c == 1) {             // <11>
-        u32 stepA = M/4 * klen;
-        u32 stepB = N/4 * klen;
-        for (u32 k=0; k<K; k=k+klen)
-        {
-            vle64.v(0, A); A += stepA;
-            vle64.v(8, B); B += stepB;
-            vfmmacc.vv(16, 0, 8);
-            vle64.v(1, A); A += stepA;
-            vfmmacc.vv(17, 1, 8);
-            vle64.v(2, A); A += stepA;
-            vfmmacc.vv(18, 2, 8);
-            vle64.v(3, A); A += stepA;
-            vfmmacc.vv(19, 3, 8);
-            vle64.v(9, B); B += stepB;
-            vfmmacc.vv(20, 0, 9);
-            vfmmacc.vv(21, 1, 9);
-            vfmmacc.vv(22, 2, 9);
-            vfmmacc.vv(23, 3, 9);
-            vle64.v(10, B); B += stepB;
-            vfmmacc.vv(24, 0, 10);
-            vfmmacc.vv(25, 1, 10);
-            vfmmacc.vv(26, 2, 10);
-            vfmmacc.vv(27, 3, 10);
-            vle64.v(11, B); B += stepB;
-            vfmmacc.vv(28, 0, 11);
-            vfmmacc.vv(29, 1, 11);
-            vfmmacc.vv(30, 2, 11);
-            vfmmacc.vv(31, 3, 11);
+    } else if (emul_c == 1) {                                           // <11>
+        const size_t stepA_bytes = (M / 4) * klen * sizeof(double); // t0
+        const size_t stepB_bytes = (N / 4) * klen * sizeof(double); // t1
+
+        for (size_t k = 0; k < K; k += klen) {
+            asm {
+                vle64.v     v0, (a1)
+                add         a1, a1, t0
+                vle64.v     v8, (a2)
+                add         a2, a2, t1
+                vfmmacc.vv  v16, v0, v8
+                vle64.v     v1, (a1)
+                add         a1, a1, t0
+                vfmmacc.vv  v17, v1, v8
+                vle64.v     v2, (a1)
+                add         a1, a1, t0
+                vfmmacc.vv  v18, v2, v8
+                vle64.v     v3, (a1)
+                add         a1, a1, t0
+                vfmmacc.vv  v19, v3, v8
+                vle64.v     v9, (a2)
+                add         a2, a2, t1
+                vfmmacc.vv  v20, v0, v9
+                vfmmacc.vv  v21, v1, v9
+                vfmmacc.vv  v22, v2, v9
+                vfmmacc.vv  v23, v3, v9
+                vle64.v     v10, (a2)
+                add         a2, a2, t1
+                vfmmacc.vv  v24, v0, v10
+                vfmmacc.vv  v25, v1, v10
+                vfmmacc.vv  v26, v2, v10
+                vfmmacc.vv  v27, v3, v10
+                vle64.v     v11, (a2)
+                add         a2, a2, t1
+                vfmmacc.vv  v28, v0, v11
+                vfmmacc.vv  v29, v1, v11
+                vfmmacc.vv  v30, v2, v11
+                vfmmacc.vv  v31, v3, v11
+            }
         }
     }
+
+    /* The packed result remains in v16-v31, as in the original listing. */
 }
 ----
-<1> The double-precision microkernel first establishes `SEW=64` and
-    `LMUL=1`. Because this operation may change `SEW`, it may replace a
-    previously selected `KLEN`.
-<2> `requested_klen` is assumed to be a valid nonzero semantic `KLEN`
-    value and is the value used to pack both input panels. It is submitted
-    only after the required `SEW` has been established. The assertions reject
-    a zero request and require the returned `klen` to equal the requested
-    value. A different selected value, including zero, does not satisfy the
+<1> The initial `vsetvli` establishes `SEW=64`, `LMUL=1`, and `VL=L`;
+    `t2` receives the selected vector length. Because this operation may
+    change `SEW`, it may replace a previously selected `KLEN`.
+<2> The assertions check that `requested_klen` is a power of two in the
+    range 1 through 64. This is the exact semantic `KLEN` used to pack both
+    input panels. It is submitted only after the required `SEW` has been
+    established, and the returned `klen` must equal the requested value.
+    A different selected value, including zero, does not satisfy the
     kernel's packing requirement.
 <3> `L` is computed from the architectural VLEN after establishing
     `SEW=64`; it is not trusted as a caller-supplied geometry value.
@@ -413,8 +481,9 @@ void microdgemm
     architectural C register-group multiplicities.
 <5> For simplicity, `K` is an integer multiple of the actual selected
     `klen`.
-<6> Vector registers `v16` through `v31` hold the output accumulators and
-    are initialized to zero.
+<6> The sixteen explicit `vmv.v.i` instructions initialize accumulator
+    registers `v16` through `v31` to positive zero, with `VL=L` and
+    `LMUL=1`.
 <7> With `EMUL_C=16`, one matrix instruction updates a single
     sixteen-register C tile.
 <8> With `EMUL_C=8`, the sixteen output registers hold two C tiles.
@@ -475,7 +544,7 @@ Four A input tiles and four B input tiles are loaded in each iteration, and 16 m
 
 <<microdgemm-intrinsics-example>> expresses the five microkernel
 organizations in <<microdgemm-example>> using only C, IME intrinsics, and
-ordinary RVV intrinsics. The original mixed assembly/intrinsic listing is
+ordinary RVV intrinsics. The preceding mixed C/assembly illustration is
 retained. Both listings use the same packed A/B panel layout, K-loop step,
 input pointer advances, and accumulator-tile organization.
 
